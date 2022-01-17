@@ -71,7 +71,7 @@ get_random_raw <- function(n) {
 }
 
 get_random_list <- function(n) {
-    replicate(n, get_random_value(), simplify = FALSE)
+    replicate(n, get_random_value_simple(), simplify = FALSE)
 }
 
 get_random_matrix <- function(n) {
@@ -104,7 +104,16 @@ get_random_df <- function(cols, n) {
         as.data.frame(replicate(cols, get_random_vector(n)))
 }
 
-get_random_value <- function() {
+# Takes a type, and returns a random simple value of that type.
+get_random_value_for_type <- function(type) {
+    "TODO"
+}
+
+get_random_value_for_value <- function(value) {
+    get_random_value_for_type(contractr::infer_type(value))
+}
+
+get_random_value_simple <- function() {
     which <- sample(c("int", "dbl", "clx", "raw", "chr", "lgl", "list", "df", "previous", "matrix"), 1)
     how_many <- sample(1:5, 1)
 
@@ -132,10 +141,10 @@ get_random_value <- function() {
     }
 }
 
-generate_call_for_function <- function(fn) {
+generate_call_for_function_simple <- function(fn) {
     fn_params <- formals(fn)
     num_params <- length(fn_params)
-    call_res <- generate_call_for_function_inner(fn, num_params)
+    call_res <- generate_call_for_function_inner_simple(fn, num_params)
 
     if (is.null(call_res$warnings) & is.null(call_res$errors)) {
         if (typeof(call_res$ret) != "list")
@@ -147,8 +156,8 @@ generate_call_for_function <- function(fn) {
     call_res
 }
 
-generate_call_for_function_inner <- function(fn, num_params) {
-    args <- replicate(num_params, get_random_value(), simplify = FALSE)
+generate_call_for_function_inner_simple <- function(fn, num_params) {
+    args <- replicate(num_params, get_random_value_simple(), simplify = FALSE)
     return_pkg <- catchWarningsAndErrors(do.call(fn, args))
 
     list(args = args, 
@@ -158,8 +167,8 @@ generate_call_for_function_inner <- function(fn, num_params) {
         errors = return_pkg$errors)
 }
 
-test_function <- function(fn, num_times = 100, .infer = FALSE) {
-    res <- replicate(num_times, generate_call_for_function(fn), simplify = FALSE)
+test_function_simple <- function(fn, num_times = 100, .infer = FALSE) {
+    res <- replicate(num_times, generate_call_for_function_simple(fn), simplify = FALSE)
 
     if (.infer) {
         # Collect all successful runs.
@@ -170,14 +179,4 @@ test_function <- function(fn, num_times = 100, .infer = FALSE) {
 
     res
 }
-
-get_stats_for_run <- function(listOfCalls) {
-    n_warn <- length(Filter(function(c) !is.null(c$warnings), listOfCalls))
-    n_err <- length(Filter(function(c) !is.null(c$errors), listOfCalls))
-    n_warn_and_err <- length(Filter(function(c) !is.null(c$errors) & !is.null(c$warnings), listOfCalls))
-
-    list(ok = length(listOfCalls) - n_warn - n_err, warnings = n_warn, errors = n_err, warnings_and_errors = n_warn_and_err)
-}
-
-# TODO: Test with some real functions. E.g., stuff in `stringr`. 
 
