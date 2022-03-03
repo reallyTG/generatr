@@ -4,6 +4,116 @@ library(contractr)
 
 contractr::set_severity("silence")
 
+CLASS_KW <- "class"
+TICK <- "`"
+OPEN_CHEV <- "<"
+CLOSE_CHEV <- ">"
+COMMA <- ","
+
+char_at <- function(str, index) {
+    substr(str, index, index)
+}
+
+# Idea: turn one of these strings into a list with characters for each parameter type.
+#       We will use that type to guide test case generation.
+# 
+# Example formats:
+#
+# type `ad.test` <double[], any, ...> => class<`htest`>;
+# type `ad.test.pvalue` <double, integer> => double;
+# type `ad.test.statistic` <double[]> => double;
+#
+parse_type <- function(type_string) {
+    chev_level <- 0
+    in_tick <- FALSE
+    done_parameters <- FALSE
+    paren_level <- 0
+    index <- 1
+    last_index <- 1
+    last_arrow_index <- 1
+    paren_index <- 1
+    # clear the 'type ' heading
+    type_string <- substring(type_string, 6)
+
+    fun_name <- ""
+    parameter_types <- c()
+    return_type <- ""
+
+    # iterate through the string
+    while (index <= nchar(type_string)) {
+        char_now <- char_at(type_string, index)
+        if (char_now == TICK) {
+            in_tick <- !in_tick
+            if (!in_tick && fun_name == "") {
+                # Haven't set the function name yet.
+                # +1, -1 to get rid of leading and trailing `
+                fun_name <- substring(type_string, last_index + 1, index - 1)
+                last_index <- index
+            }
+        }
+
+        if (in_tick) {
+            index <- index + 1
+            next()
+        }
+
+        if (char_now == OPEN_CHEV) {
+            chev_level <- chev_level + 1
+            if (chev_level == 1)
+                last_index <- index
+        }
+
+        if (char_now == CLOSE_CHEV) {
+            if (char_at(type_string, index - 1) == "=") {
+                # We are actually dealing with the transition to the return type.
+                last_index <- index
+                last_arrow_index <- index
+            } else {
+                chev_level <- chev_level - 1
+                if (chev_level == 0 && !done_parameters) {
+                    # We're parsing the last type.
+                    parameter_types <- c(parameter_types, str_trim(substring(type_string, last_index + 1, index - 1)))
+                    done_parameters <- TRUE
+                }
+            }
+        }
+
+        # At this stage, we are at the "top level" of the type, i.e., we are parsing in the major < ... > top-level angle brackets.
+        if (chev_level == 1) {
+            if (char_now == COMMA && !done_parameters) {
+                # Here, we must have seen a parameter type. 
+                # +1, -1 to get rid of leading and trailing crap.
+                parameter_types <- c(parameter_types, str_trim(substring(type_string, last_index + 1, index - 1)))
+                last_index <- index
+            }
+        }
+
+        # Parsing a return type.
+        if (chev_level == 0) {
+            if (char_now == "(") {
+                paren_level <- paren_level + 1
+                paren_index <- index
+            } else if (char_now == ")") {
+                paren_level <- paren_level - 1
+                if (return_type == "") {
+                    return_type <- str_trim(substring(type_string, paren_index + 1, index - 1))
+                }
+            } else if (char_now == ";") {
+                # We're done. Let's eat whatever we have left as the return type.
+                if (return_type == "") {
+                    return_type <- str_trim(substring(type_string, last_arrow_index + 1, index - 1))
+                }
+            }
+        }
+
+        index <- index + 1
+    }
+
+    list(fun_name = fun_name,
+         parameter_types = parameter_types,
+         return_type = return_type)
+}
+
 get_type_for_args_and_ret <- function(args, ret) {
     arg_types <- Map(contractr::infer_type, args)
     ret_type <- contractr::infer_type(ret)
@@ -435,4 +545,12 @@ consolidate_types_to_one <- function(lot, max_num_types = LIST_UNION_HEURISTIC, 
     } else {
         paste(trimmed_types, collapse=" | ")
     }
+}
+
+print_signatures_from_df <- function(df) {
+    df %>% filter(n_warn + n_err == 0) %>% 
+           select(starts_with("arg") & !ends_with("_v"), ret) %>% 
+           apply(FUN=function(row) {
+               paste(paste(row[1:(length(row)-1)], collapse=", "), "->", row[[length(row)]])
+           }, MARGIN=1)
 }
