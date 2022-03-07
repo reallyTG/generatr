@@ -1,0 +1,1 @@
+options(contractr.autoinject = FALSE)

@@ -1,14 +1,7 @@
-
 library(sxpdb)
-
-# Make sure utilities are loaded.
-source("generatr/generate-utils.R")
-
-# Make sure the type system utilities are loaded.
-source("generatr/generate-type-system-utils.R")
-
-# We will use a rudimentary test generation approach for the sketch phase, so make sure that's loaded.
-source("generatr/generate-randoop.R")
+library(dplyr)
+library(purrr)
+library(rlang)
 
 ##
 #   Constants
@@ -21,6 +14,7 @@ FRACTION_SPENT_EXPLORING <- 0.1
 
 # Make sure you save the result of this, it takes a while to compute.
 # This works using the CRAN-100 DB.
+#' @export
 load_db <- function(path) {
     # Open the DB.
     DB <- open_db(path)
@@ -197,6 +191,8 @@ feedback_directed_call_generator_from_type <- function(fn, budget, type) {
     unique_unsuccessful_signatures
 }
 
+#' @importFrom purrr map
+#' @importFrom dplyr filter select
 feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, origins_db, meta_db, budget = 10^3) {
     # First, filter origins_db to get only things from the pkg::fn_name.
     seen_values <- origins_db %>% filter(pkg == pkg, fun == fn_name)
@@ -311,6 +307,8 @@ test_function <- function(fn, budget = 10^3, init_type = "") {
 
 # Usage: fuzz_every_fn_in_pkg("stringr", value_db, origins_db, meta_db)
 # Note: meta_db is currently unused.
+#' @importFrom purrr map
+#' @export
 fuzz_every_fn_in_pkg <- function(pkg, value_db, origins_db, meta_db, budget = 10^3) {
     fn_names <- lsf.str(paste0("package:", pkg))
     

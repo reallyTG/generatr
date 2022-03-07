@@ -1,4 +1,3 @@
-
 library(tidyverse)
 library(rlang)
 
@@ -13,6 +12,8 @@ get_stats_for_run <- function(listOfCalls) {
 #
 # Take the output of the type sketch phase and turn it into a useful data frame.
 #
+#' @importFrom rlang quo
+#' @importFrom purrr map
 process_multi_test_output_to_df <- function(output) {
     example_output <- output[[1]]
 
