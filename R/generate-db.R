@@ -221,19 +221,31 @@ feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, 
             relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
 
             # Generate the call.
-            args <- arg_seeds %>% map(function (lfp) {
+            args_idx <- arg_seeds %>% map(function (lfp) {
                 tryCatch((function() {
                     if (length(lfp) == 0) {
                         # Here, there haven't been any observed values for this parameter.
                         # We will just sample randomly until one succeeds.
-                        sample_val(value_db)
+                        sample_index(value_db)
                     } else {
                         seed_for_this_param <- sample(lfp, 1)
-                        sample_similar(value_db, seed_for_this_param, relax_this_time)
+                        q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
+                        relax_query(q, relax_this_time)
+                        sample_index(value_db, q)
                     }
                 })(), error = function (e) {
                     print(e)
                 })
+            })
+            
+            cat(pkg, "::", fn_name, ": (", paste0(args_idx, collapse = ", "), ")\n", sep = "")
+            
+            args <- map(args_idx, function(idx) {
+              tryCatch((function() {
+                get_value_idx(value_db, idx)
+              })(), error = function(e) {
+                print(e)
+              })
             })
 
             return_pkg <- catchWarningsAndErrors(do.call(fn, args))
