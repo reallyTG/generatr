@@ -218,8 +218,6 @@ feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, 
     # Dumb loop, make this better.
     for (i in 1:budget) {
         tryCatch((function () {
-            relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
-
             # Generate the call.
             args_idx <- arg_seeds %>% map(function (lfp) {
                 tryCatch((function() {
@@ -230,8 +228,16 @@ feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, 
                     } else {
                         seed_for_this_param <- sample(lfp, 1)
                         q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
-                        relax_query(q, relax_this_time)
-                        sample_index(value_db, q)
+                        idx <- NULL
+                        j <- 1
+                        relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
+                        while(is.null(idx) && j <= length(RELAX)) {
+                          relax_query(q, relax_this_time)
+                          idx <- sample_index(value_db, q)
+                          relax_this_time <- unique(c(relax_this_time, RELAX[[j]]))
+                          j <- j + 1
+                        }
+                        idx
                     }
                 })(), error = function (e) {
                     print(e)
