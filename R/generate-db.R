@@ -193,6 +193,7 @@ feedback_directed_call_generator_from_type <- function(fn, budget, type) {
 
 #' @importFrom purrr map
 #' @importFrom dplyr filter select
+#' @export
 feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, origins_db, meta_db, budget = 10^3) {
     # First, filter origins_db to get only things from the pkg::fn_name.
     seen_values <- origins_db %>% filter(pkg == pkg, fun == fn_name)
