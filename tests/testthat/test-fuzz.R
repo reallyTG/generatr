@@ -8,6 +8,7 @@ test_that("fuzz one function", {
 
   runner_fun <- function(pkg_name, fn_name, args_idx) {
     fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+    # TODO move this into the runner itself
     args <- map(args_idx, ~sxpdb::get_value_idx(value_db, .))
     runner_exec(runner, fn, args)
   }
