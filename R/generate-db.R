@@ -191,21 +191,25 @@ feedback_directed_call_generator_from_type <- function(fn, budget, type) {
     unique_unsuccessful_signatures
 }
 
-#' @importFrom purrr map
+#' @importFrom purrr map map_dfr
 #' @importFrom dplyr filter select
+#' @importFrom tibble as_tibble
 #' @export
-feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, origins_db, meta_db, budget = 10^3) {
+feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
+                                                    value_db, origins_db, meta_db,
+                                                    runner,
+                                                    budget = 10^3) {
     # First, filter origins_db to get only things from the pkg::fn_name.
-    seen_values <- origins_db %>% filter(pkg == pkg, fun == fn_name)
+    seen_values <- origins_db %>% filter(pkg_name == pkg_name, fun == fn_name)
 
     # Use these values as initial seeds for the value_db.
-    arg_seeds <- formals(fn) %>% 
-        names %>% 
-        map(function(x) seen_values %>% 
-            filter(param == !!x) %>% 
-            select(id) %>% 
-            unlist %>% 
-            unname %>% 
+    arg_seeds <- formals(fn) %>%
+        names %>%
+        map(function(x) seen_values %>%
+            filter(param == !!x) %>%
+            select(id) %>%
+            unlist %>%
+            unname %>%
             map(function(y) get_value_idx(value_db, y)))
 
     names(arg_seeds) <- names(formals(fn))
@@ -213,72 +217,121 @@ feedback_directed_call_generator_all_db <- function(fn, pkg, fn_name, value_db, 
     # Ok. Now, we want to gradually tighten up constraints.
     RELAX <- c("na", "length", "attributes", "vector", "ndims", "class", "type")
 
-    collected_results <- list()
-
-    # Dumb loop, make this better.
-    for (i in 1:budget) {
-        tryCatch((function () {
-            # Generate the call.
-            args_idx <- arg_seeds %>% map(function (lfp) {
-                tryCatch((function() {
-                    if (length(lfp) == 0) {
-                        # Here, there haven't been any observed values for this parameter.
-                        # We will just sample randomly until one succeeds.
-                        sample_index(value_db)
-                    } else {
-                        seed_for_this_param <- sample(lfp, 1)
-                        q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
-                        idx <- NULL
-                        j <- 1
-                        relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
-                        while(is.null(idx) && j <= length(RELAX)) {
-                          relax_query(q, relax_this_time)
-                          idx <- sample_index(value_db, q)
-                          relax_this_time <- unique(c(relax_this_time, RELAX[[j]]))
-                          j <- j + 1
-                        }
-                        idx
+    generate_args <- function(i) {
+        args_idx <- map(
+            arg_seeds,
+            function(lfp) {
+                if (length(lfp) == 0) {
+                    # Here, there haven't been any observed values for this parameter.
+                    # We will just sample randomly until one succeeds.
+                    sample_index(value_db)
+                } else {
+                    seed_for_this_param <- sample(lfp, 1)
+                    q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
+                    idx <- NULL
+                    j <- 1
+                    relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
+                    while (is.null(idx) && j <= length(RELAX)) {
+                        relax_query(q, relax_this_time)
+                        idx <- sample_index(value_db, q)
+                        relax_this_time <- unique(c(relax_this_time, RELAX[[j]]))
+                        j <- j + 1
                     }
-                })(), error = function (e) {
-                    print(e)
-                })
-            })
-            
-            cat(pkg, "::", fn_name, ": (", paste0(args_idx, collapse = ", "), ")\n", sep = "")
-            
-            args <- map(args_idx, function(idx) {
-              tryCatch((function() {
-                get_value_idx(value_db, idx)
-              })(), error = function(e) {
-                print(e)
-              })
-            })
-
-            return_pkg <- catchWarningsAndErrors(do.call(fn, args))
-
-            results <- list(args = args, 
-                ret = return_pkg$value, 
-                type = get_type_for_args_and_ret(args, return_pkg$value), 
-                warnings = return_pkg$warnings, 
-                errors = return_pkg$errors)
-
-            collected_results <<- c(collected_results, list(results))
-
-            if (length(results$warnings) + length(results$errors) == 0) {
-                # Call was probably successful.
-                # Save the arguments as future seeds.
-                for (n in names(args)) {
-                    arg_seeds[[n]] <<- union(arg_seeds[[n]], list(args[[n]]))
+                    idx
                 }
             }
-        })(), error = function (e) {
-            # Do nothing.
-            print('Error creating a call:')
-            print(e)
-        })
+        )
+
+        args_idx
     }
 
-    process_multi_test_output_to_df(collected_results)
+    # returns a list
+    # - args_idx: int[]    - indicies to be used for the args
+    # - error: chr         - the error from the function
+    # - exit: int          - the exit code if the R session has crashed or 0
+    # - messages: chr[]    - messages captured during the call    
+    # - output: chr        - output captured during the call
+    # - result: any        - the function return value
+    # - warnings: chr[]    - warnings captured during the call
+    run_one <- function(i) {
+        res <- list(
+            args_idx = NA_integer_,
+            error = NA_character_,
+            messages = NA_character_,
+            output = NA_character_,
+            exit = NA_integer_,
+            result = NULL,
+            warnings = NA_character_
+        )
+        class(res) <- "result"
+
+        tryCatch({
+            res$args_idx <- generate_args(i)
+        }, error = function(e) {
+            res$error <<- paste("fuzz-generate-args:", e$message)
+        })
+
+        if (!is.na(res$error)) {
+            return(tibble::as_tibble(res))
+        }
+
+        tryCatch({
+            r <- runner(pkg_name, fn_name, res$args_idx)
+            res$messages <- r$messages
+            res$output <- r$output
+            if (!is.null(r$result)) {
+                res$result <- r$result
+            }
+            res$exit <- r$exit
+            res$warnings <- r$warnings
+        }, error = function(e) {
+            res$error <<- e$message
+        })
+
+        if (is.na(res$error) && res$exit == 0L) {
+            # Call was probably successful.
+            # Save the arguments as future seeds.
+            for (n in names(res$args_idx)) {
+                args <- purrr::map(res$args_idx, ~ sxpdb::get_value_idx(value_db, .))
+                arg_seeds[[n]] <<- union(arg_seeds[[n]], list(args[[n]]))
+            }
+        }
+
+        tibble::as_tibble(res)
+    }
+
+    collected_results <- purrr::map_dfr(1:budget, run_one)
+
+    collected_results
+}
+
+#' @export
+as_tibble.result <- function(x, ...) {
+    a <- x
+    # TODO: how to encode result? just as type?
+    x$result <- NULL
+    # TODO: how to encode args? just as types?
+    x$args_idx <- paste0(x$args_idx, collapse = ",")
+
+    # TODO: some unify handling of these two vectors
+    # - when they are > 1
+    # - when they are ""
+    # - when thet are chr(0)
+    if (length(x$messages) != 1) {
+        x$messages <- paste0(x$messages, collapse = "\n")
+    }
+
+    if (length(x$warnings) != 1) {
+        x$warnings <- paste0(x$warnings, collapse = "\n")
+    }
+
+    class(x) <- NULL
+    tibble::as_tibble(x)
+}
+
+simple_runner <- function(pkg_name, fn_name, args_idx, value_db) {
+   args <- map(args_idx, ~get_value_idx(value_db, .))
+   return_pkg <- catchWarningsAndErrors(do.call(fn, args))
 }
 
 # Note: Relaxation parameters for DB: c("na", "length", "attributes", "type", "vector", "ndims", "class")
