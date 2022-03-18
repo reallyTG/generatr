@@ -16,7 +16,7 @@ test_that("runner captures all", {
 
     expect_equal(length(x), 6)
     expect_equal(is.na(x$error), TRUE)
-    expect_equal(x$exit, 0L)
+    expect_equal(is.na(x$exit), TRUE)
     expect_equal(x$messages, "d\n")
     expect_equal(x$output, "c")
     expect_equal(x$result, 42)
@@ -40,12 +40,12 @@ test_that("runner survies an error", {
     )
 
     expect_equal(length(x), 6)
-    expect_equal(x$error, "callr subprocess failed: 42")
-    expect_equal(x$exit, 0L)
-    expect_equal(is.na(x$messages), TRUE)
-    expect_equal(is.na(x$output), TRUE)
+    expect_equal(x$error, "42")
+    expect_equal(is.na(x$exit), TRUE)
+    expect_equal(x$messages, "d\n")
+    expect_equal(x$output, "c")
     expect_equal(is.null(x$result), TRUE)
-    expect_equal(is.na(x$warnings), TRUE)
+    expect_equal(x$warnings, c("a", "b"))
 })
 
 test_that("runner survies an sigabort", {
@@ -78,6 +78,6 @@ test_that("runner survies an sigabort", {
     x <- runner_exec(r, function() 42, list())
 
     expect_equal(is.na(x$error), TRUE)
-    expect_equal(x$exit, 0L)
+    expect_equal(is.na(x$exit), TRUE)
     expect_equal(x$result, 42)
 })

@@ -1,4 +1,7 @@
 test_that("fuzz one function", {
+
+  # TODO: make it a test
+  DB_PATH <- "/mnt/ocfs_vol_00/cran_db-4"
   value_db <- sxpdb::open_db(DB_PATH)
   origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
   meta_db <- NULL

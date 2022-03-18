@@ -253,14 +253,16 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
     # - output: chr        - output captured during the call
     # - result: any        - the function return value
     # - warnings: chr[]    - warnings captured during the call
+    # - status: int        - 0 is OK, 1: warnings, 2: error, 3: crash, -1: generate_args failure, -2: runner failure
     run_one <- function(i) {
         res <- list(
             args_idx = NA_integer_,
             error = NA_character_,
+            exit = NA_integer_,
             messages = NA_character_,
             output = NA_character_,
-            exit = NA_integer_,
             result = NULL,
+            status = 0L,
             warnings = NA_character_
         )
         class(res) <- "result"
@@ -269,26 +271,40 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
             res$args_idx <- generate_args(i)
         }, error = function(e) {
             res$error <<- paste("fuzz-generate-args:", e$message)
+            res$status <<- -1L
         })
 
-        if (!is.na(res$error)) {
+        if (res$status != 0) {
             return(tibble::as_tibble(res))
         }
 
         tryCatch({
             r <- runner(pkg_name, fn_name, res$args_idx)
+
+            res$error <- r$error
             res$messages <- r$messages
             res$output <- r$output
+            res$exit <- r$exit
+            res$warnings <- r$warnings
+
             if (!is.null(r$result)) {
                 res$result <- r$result
             }
-            res$exit <- r$exit
-            res$warnings <- r$warnings
+            if (any(!is.na(res$warnings))) {
+                res$status <- 1L
+            }
+            if (!is.na(res$error)) {
+                res$status <- 2L
+            }
+            if (!is.na(res$exit)) {
+                res$status <- 3L
+            }
         }, error = function(e) {
             res$error <<- e$message
+            res$status <<- -2L
         })
 
-        if (is.na(res$error) && res$exit == 0L) {
+        if (res$status == 0L) {
             # Call was probably successful.
             # Save the arguments as future seeds.
             for (n in names(res$args_idx)) {
