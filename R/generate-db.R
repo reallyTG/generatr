@@ -218,7 +218,7 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
     RELAX <- c("na", "length", "attributes", "vector", "ndims", "class", "type")
 
     generate_args <- function(i) {
-        args_idx <- map(
+        args_idx <- purrr::map_int(
             arg_seeds,
             function(lfp) {
                 if (length(lfp) == 0) {
@@ -229,6 +229,7 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
                     seed_for_this_param <- sample(lfp, 1)
                     q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
                     idx <- NULL
+                    # TODO: what to do it it is a NULL?
                     j <- 1
                     relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
                     while (is.null(idx) && j <= length(RELAX)) {
@@ -269,6 +270,9 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
 
         tryCatch({
             res$args_idx <- generate_args(i)
+            if (!is.integer(res$args_idx)) {
+                stop("Generated value indices are not integers!")
+            }
         }, error = function(e) {
             res$error <<- paste("fuzz-generate-args:", e$message)
             res$status <<- -1L
@@ -344,9 +348,40 @@ as_tibble.result <- function(x, ...) {
     tibble::as_tibble(x)
 }
 
-simple_runner <- function(pkg_name, fn_name, args_idx, value_db) {
-   args <- map(args_idx, ~get_value_idx(value_db, .))
-   return_pkg <- catchWarningsAndErrors(do.call(fn, args))
+create_fuzz_runner <- function(db_path, runner) {
+    # load db in the worker
+    ret <- runner_exec(
+        runner,
+        function(db_path) {
+            assign(".DB", sxpdb::open_db(db_path), envir = globalenv())
+            0L
+        },
+        list(db_path)
+    )
+
+    if (ret$result != 0L) {
+        stop("Unable to load DB in the runner: ", format(ret))
+    }
+
+    function(pkg_name, fn_name, args_idx) {
+        runner_exec(
+            runner,
+            function(pkg_name, fn_name, args_idx) {
+                tryCatch({
+                    args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
+                    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+                }, error = function(e) {
+                    stop("Unable to load args or function (fn=",
+                         paste0(pkg_name, ":::", fn_name),
+                         ", args=", paste(args_idx, sep = ","),
+                         ")"
+                    )
+                })
+                do.call(fn, args)
+            }, 
+            list(pkg_name, fn_name, args_idx)
+        )
+    }
 }
 
 # Note: Relaxation parameters for DB: c("na", "length", "attributes", "type", "vector", "ndims", "class")
