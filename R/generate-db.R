@@ -307,7 +307,6 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
 
 #' @export
 as_tibble.result <- function(x, ...) {
-    a <- x
     # TODO: how to encode result? just as type?
     x$result <- NULL
     # TODO: how to encode args? just as types?

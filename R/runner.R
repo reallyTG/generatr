@@ -41,7 +41,7 @@ runner_stop <- function(runner, quiet = TRUE) {
 #' @export
 runner_exec <- function(runner, fun, args) {
     sess <- runner$sess
-    if (sess$get_state() == "finsihed") {
+    if (sess$get_state() == "finished") {
         sess <- runner_create()
         runner$sess <- sess
     }

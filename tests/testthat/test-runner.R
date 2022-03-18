@@ -74,4 +74,10 @@ test_that("runner survies an sigabort", {
     expect_equal(is.na(x$output), TRUE)
     expect_equal(is.null(x$result), TRUE)
     expect_equal(is.na(x$warnings), TRUE)
+
+    x <- runner_exec(r, function() 42, list())
+
+    expect_equal(is.na(x$error), TRUE)
+    expect_equal(x$exit, 0L)
+    expect_equal(x$result, 42)
 })
