@@ -192,60 +192,11 @@ feedback_directed_call_generator_from_type <- function(fn, budget, type) {
 }
 
 #' @importFrom purrr map map_dfr
-#' @importFrom dplyr filter select
+#' @importFrom dplyr bind_rows
 #' @importFrom tibble as_tibble
+#' @importFrom progress progress_bar
 #' @export
-feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
-                                                    value_db, origins_db, meta_db,
-                                                    runner,
-                                                    budget = 10^3) {
-    # First, filter origins_db to get only things from the pkg::fn_name.
-    seen_values <- origins_db %>% filter(pkg_name == pkg_name, fun == fn_name)
-
-    # Use these values as initial seeds for the value_db.
-    arg_seeds <- formals(fn) %>%
-        names %>%
-        map(function(x) seen_values %>%
-            filter(param == !!x) %>%
-            select(id) %>%
-            unlist %>%
-            unname %>%
-            map(function(y) get_value_idx(value_db, y)))
-
-    names(arg_seeds) <- names(formals(fn))
-
-    # Ok. Now, we want to gradually tighten up constraints.
-    RELAX <- c("na", "length", "attributes", "vector", "ndims", "class", "type")
-
-    generate_args <- function(i) {
-        args_idx <- purrr::map_int(
-            arg_seeds,
-            function(lfp) {
-                if (length(lfp) == 0) {
-                    # Here, there haven't been any observed values for this parameter.
-                    # We will just sample randomly until one succeeds.
-                    sample_index(value_db)
-                } else {
-                    seed_for_this_param <- sample(lfp, 1)
-                    q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
-                    idx <- NULL
-                    # TODO: what to do it it is a NULL?
-                    j <- 1
-                    relax_this_time <- sample(RELAX, (budget - i) / budget * length(RELAX))
-                    while (is.null(idx) && j <= length(RELAX)) {
-                        relax_query(q, relax_this_time)
-                        idx <- sample_index(value_db, q)
-                        relax_this_time <- unique(c(relax_this_time, RELAX[[j]]))
-                        j <- j + 1
-                    }
-                    idx
-                }
-            }
-        )
-
-        args_idx
-    }
-
+fuzz <- function(pkg_name, fn_name, generator, runner, quiet = !interactive()) {
     # returns a list
     # - args_idx: int[]    - indicies to be used for the args
     # - error: chr         - the error from the function
@@ -255,7 +206,7 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
     # - result: any        - the function return value
     # - warnings: chr[]    - warnings captured during the call
     # - status: int        - 0 is OK, 1: warnings, 2: error, 3: crash, -1: generate_args failure, -2: runner failure
-    run_one <- function(i) {
+    run_one <- function() {
         res <- list(
             args_idx = NA_integer_,
             error = NA_character_,
@@ -269,7 +220,12 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
         class(res) <- "result"
 
         tryCatch({
-            res$args_idx <- generate_args(i)
+            res$args_idx <- generate_args(generator)
+            
+            if (is.null(res$args_idx)) {
+                return(NULL)
+            }
+
             if (!is.integer(res$args_idx)) {
                 stop("Generated value indices are not integers!")
             }
@@ -309,21 +265,171 @@ feedback_directed_call_generator_all_db <- function(fn, pkg_name, fn_name,
         })
 
         if (res$status == 0L) {
-            # Call was probably successful.
-            # Save the arguments as future seeds.
-            for (n in names(res$args_idx)) {
-                args <- purrr::map(res$args_idx, ~ sxpdb::get_value_idx(value_db, .))
-                arg_seeds[[n]] <<- union(arg_seeds[[n]], list(args[[n]]))
-            }
+            successful_call(generator, res$args_idx)
         }
 
         tibble::as_tibble(res)
     }
 
-    collected_results <- purrr::map_dfr(1:budget, run_one)
+    tick <- if (!quiet) {
+        pb <- progress::progress_bar$new(
+            format = paste0("  fuzzing ", pkg_name, ":::", fn_name, " [:bar] :current/:total (:percent) :elapsed"),
+            total = remaining(generator), clear = FALSE, width = 80
+        )
+        function() pb$tick()
+    } else {
+        function() NULL
+    }
 
-    collected_results
+    collected_results <- new.env(parent = emptyenv())
+    i <- 1
+    cont <- TRUE
+    while (cont) {
+        run <- run_one()
+        if (is.null(run)) {
+            cont <- FALSE
+        } else {
+            assign(as.character(i), run, envir = collected_results)
+            i <- i + 1
+            tick()
+        }
+    }
+
+    df <- dplyr::bind_rows(as.list(collected_results))
+    df
 }
+
+#' @param seed a list of seeds
+create_seeded_args_generator <- function(value_db, seed) {
+    state <- new.env(parent = emptyenv())
+    class(state) <- "seeded_gen"
+
+    state$i <- 0
+    state$value_db <- value_db
+    state$seed <- seed
+
+    state
+}
+
+#' @importFrom purrr map
+#' @importFrom dplyr filter select
+create_fd_args_generator <- function(pkg_name, fn_name, value_db, origins_db, meta_db, budget) {
+    state <- new.env(parent = emptyenv())
+    class(state) <- "fd_gen"
+
+    state$value_db <- value_db
+    state$origins_db <- origins_db
+    state$meta_db <- meta_db
+    state$budget <- budget
+
+    state$i <- 0
+
+    # First, filter origins_db to get only things from the pkg::fn_name.
+    state$seen_values <- origins_db %>% filter(pkg_name == pkg_name, fun == fn_name)
+
+    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+
+    # Use these values as initial seeds for the value_db.
+    state$arg_seeds <- formals(fn) %>%
+        names %>%
+        map(function(x) state$seen_values %>%
+            filter(param == !!x) %>%
+            select(id) %>%
+            unlist %>%
+            unname %>%
+            map(function(y) get_value_idx(value_db, y)))
+
+    names(state$arg_seeds) <- names(formals(fn))
+
+    # Ok. Now, we want to gradually tighten up constraints.
+    state$RELAX <- c("na", "length", "attributes", "vector", "ndims", "class", "type")
+
+    state
+}
+
+#' @export
+generate_args <- function(state) {
+    UseMethod("generate_args")
+}
+
+#' @export
+successful_call <- function(state, args_idx) {
+    UseMethod("successful_call")
+}
+
+#' @export
+remaining <- function(state) {
+    UseMethod("remaining")
+}
+
+remaining.fd_gen <- function(state) {
+    state$budget - state$i
+}
+
+remaining.seeded_gen <- function(state) {
+    length(state$seed) - state$i
+}
+
+generate_args.seeded_gen <- function(state) {
+    if (state$i < length(state$seed)) {
+        state$i <- state$i + 1
+        state$seed[[state$i]]
+    } else {
+        NULL
+    }
+}
+
+#' @importFrom purrr map_int
+generate_args.fd_gen <- function(state) {
+    if (state$i >= state$budget) {
+        return(NULL)
+    }
+
+    state$i <- state$i + 1
+
+    args_idx <- purrr::map_int(
+        state$arg_seeds,
+        function(lfp) {
+            if (length(lfp) == 0) {
+                # Here, there haven't been any observed values for this parameter.
+                # We will just sample randomly until one succeeds.
+                sample_index(state$value_db)
+            } else {
+                seed_for_this_param <- sample(lfp, 1)
+                q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
+                idx <- NULL
+                # TODO: what to do it it is a NULL?
+                j <- 1
+                relax_this_time <- sample(state$RELAX, (state$budget - state$i) / state$budget * length(state$RELAX))
+                while (is.null(idx) && j <= length(state$RELAX)) {
+                    relax_query(q, relax_this_time)
+                    idx <- sample_index(state$value_db, q)
+                    relax_this_time <- unique(c(relax_this_time, state$RELAX[[j]]))
+                    j <- j + 1
+                }
+           idx
+           }
+       }
+    )
+
+    args_idx
+}
+
+successful_call.seeded_gen <- function(state, args_idx) {
+    # nothing to do
+}
+
+#' @importFrom purrr map
+#' @importFrom sxpdb get_value_idx
+successful_call.fd_gen <- function(state, args_idx) {
+    # Call was probably successful.
+    # Save the arguments as future seeds.
+    for (n in names(args_idx)) {
+        args <- purrr::map(args_idx, ~ sxpdb::get_value_idx(state$value_db, .))
+        state$arg_seeds[[n]] <- union(state$arg_seeds[[n]], list(args[[n]]))
+    }
+}
+
 
 #' @export
 as_tibble.result <- function(x, ...) {
@@ -366,20 +472,15 @@ create_fuzz_runner <- function(db_path, runner) {
     function(pkg_name, fn_name, args_idx) {
         runner_exec(
             runner,
-            function(pkg_name, fn_name, args_idx) {
-                tryCatch({
-                    args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
-                    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
-                }, error = function(e) {
-                    stop("Unable to load args or function (fn=",
-                         paste0(pkg_name, ":::", fn_name),
-                         ", args=", paste(args_idx, sep = ","),
-                         ")"
-                    )
-                })
+            function(pkg_name, fn_name, args_idx, db_path) {
+                if (!exists(".DB", envir = globalenv())) {
+                    assign(".DB", sxpdb::open_db(db_path), envir = globalenv())
+                }
+                args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
+                fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
                 do.call(fn, args)
-            }, 
-            list(pkg_name, fn_name, args_idx)
+            },
+            list(pkg_name, fn_name, args_idx, db_path)
         )
     }
 }
