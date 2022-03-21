@@ -3,6 +3,7 @@
 S3method(as_tibble,result)
 S3method(print,runner)
 export(capture_all)
+export(create_existing_args_generator)
 export(create_fd_args_generator)
 export(create_seeded_args_generator)
 export(fuzz)
