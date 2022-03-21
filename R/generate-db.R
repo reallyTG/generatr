@@ -213,21 +213,25 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, quiet = !interactive()) {
     fuzz(pkg_name, fn_name, generator, runner_fun, quiet)
 }
 
-#' @importFrom purrr map map_dfr
+#' @importFrom purrr map map_dfr map_chr
 #' @importFrom dplyr bind_rows
 #' @importFrom tibble as_tibble
 #' @importFrom progress progress_bar
 #' @export
-fuzz <- function(pkg_name, fn_name, generator, runner, quiet = !interactive()) {
+fuzz <- function(pkg_name, fn_name, generator, runner, 
+                 quiet = !interactive(), 
+                 get_type = contractr::infer_type) {
     # returns a list
     # - args_idx: int[]    - indicies to be used for the args
     # - error: chr         - the error from the function
     # - exit: int          - the exit code if the R session has crashed or 0
-    # - messages: chr[]    - messages captured during the call    
+    # - messages: chr[]    - messages captured during the call
     # - output: chr        - output captured during the call
     # - result: any        - the function return value
     # - warnings: chr[]    - warnings captured during the call
     # - status: int        - 0 is OK, 1: warnings, 2: error, 3: crash, -1: generate_args failure, -2: runner failure
+    # signature: chr       - the signatrue inferred from the call (using `get_type`)
+
     run_one <- function() {
         res <- list(
             args_idx = NA_integer_,
@@ -236,6 +240,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner, quiet = !interactive()) {
             messages = NA_character_,
             output = NA_character_,
             result = NULL,
+            signature = NA_character_,
             status = 0L,
             warnings = NA_character_
         )
@@ -243,7 +248,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner, quiet = !interactive()) {
 
         tryCatch({
             res$args_idx <- generate_args(generator)
-            
+
             if (is.null(res$args_idx)) {
                 return(NULL)
             }
@@ -288,6 +293,12 @@ fuzz <- function(pkg_name, fn_name, generator, runner, quiet = !interactive()) {
 
         if (res$status == 0L) {
             successful_call(generator, res$args_idx)
+        }
+
+        if (res$status %in% c(0L, 1L)) {
+            sig_args <- purrr::map_chr(res$args_idx, ~get_type(get_value(generator, .)))
+            sig_args <- paste0(sig_args, collapse = ", ")
+            res$signature <- paste0("(", sig_args, ") -> ", get_type(res$result))
         }
 
         tibble::as_tibble(res)
@@ -359,7 +370,7 @@ create_fd_args_generator <- function(pkg_name, fn_name, value_db, origins_db, me
             select(id) %>%
             unlist %>%
             unname %>%
-            map(function(y) get_value_idx(value_db, y)))
+            map(function(y) sxpdb::get_value_idx(value_db, y)))
 
     names(state$arg_seeds) <- names(formals(fn))
 
@@ -382,6 +393,19 @@ successful_call <- function(state, args_idx) {
 #' @export
 remaining <- function(state) {
     UseMethod("remaining")
+}
+
+#' @export
+get_value <- function(state, idx) {
+    UseMethod("get_value")
+}
+
+get_value.fd_gen <- function(state, idx) {
+    sxpdb::get_value_idx(state$value_db, idx)
+}
+
+get_value.seeded_gen <- function(state, idx) {
+    sxpdb::get_value_idx(state$value_db, idx)
 }
 
 remaining.fd_gen <- function(state) {
@@ -457,7 +481,6 @@ successful_call.fd_gen <- function(state, args_idx) {
 #' @export
 as_tibble.result <- function(x, ...) {
     y <- x
-    SEP <- ";"
 
     fix <- function(v) {
         if (length(v) == 0) {
@@ -465,13 +488,11 @@ as_tibble.result <- function(x, ...) {
         } else if (length(v) == 1 && !is.na(v) && v == "") {
             NA_character_
         } else {
-            paste0(v, collapse = SEP)
+            paste0(v, collapse = ";")
         }
     }
 
-    # TODO: how to encode result? just as type?
     y$result <- NULL
-    # TODO: how to encode args? just as types?
     y$args_idx <- fix(x$args_idx)
     y$output <- trimws(y$output)
     y$output <- if (nchar(y$output) == 0) NA_character_ else y$output
