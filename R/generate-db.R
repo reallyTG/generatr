@@ -191,6 +191,28 @@ feedback_directed_call_generator_from_type <- function(fn, budget, type) {
     unique_unsuccessful_signatures
 }
 
+#' @export
+quick_fuzz <- function(pkg_name, fn_name, db, budget, quiet = !interactive()) {
+    runner <- runner_start(quiet = quiet)
+    on.exit(runner_stop(runner, quiet = quiet))
+
+    value_db <- if (is.character(db)) {
+        sxpdb::open_db(db)
+    } else {
+        db
+    }
+
+    origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
+
+    generator <- create_fd_args_generator(pkg_name, fn_name,
+                                          value_db = value_db, origins_db = origins_db, meta_db = NULL,
+                                          budget = budget)
+
+    runner_fun <- create_fuzz_runner(runner = runner, db_path = path_db(value_db))
+
+    fuzz(pkg_name, fn_name, generator, runner_fun, quiet)
+}
+
 #' @importFrom purrr map map_dfr
 #' @importFrom dplyr bind_rows
 #' @importFrom tibble as_tibble
@@ -387,6 +409,8 @@ generate_args.fd_gen <- function(state) {
 
     state$i <- state$i + 1
 
+    # TODO: keep the set of idx that have been alreay tried
+
     args_idx <- purrr::map_int(
         state$arg_seeds,
         function(lfp) {
@@ -430,28 +454,32 @@ successful_call.fd_gen <- function(state, args_idx) {
     }
 }
 
-
 #' @export
 as_tibble.result <- function(x, ...) {
+    y <- x
+    SEP <- ";"
+
+    fix <- function(v) {
+        if (length(v) == 0) {
+            NA_character_
+        } else if (length(v) == 1 && !is.na(v) && v == "") {
+            NA_character_
+        } else {
+            paste0(v, collapse = SEP)
+        }
+    }
+
     # TODO: how to encode result? just as type?
-    x$result <- NULL
+    y$result <- NULL
     # TODO: how to encode args? just as types?
-    x$args_idx <- paste0(x$args_idx, collapse = ",")
+    y$args_idx <- fix(x$args_idx)
+    y$output <- trimws(y$output)
+    y$output <- if (nchar(y$output) == 0) NA_character_ else y$output
+    y$messages <- fix(x$messages)
+    y$warnings <- fix(x$warnings)
 
-    # TODO: some unify handling of these two vectors
-    # - when they are > 1
-    # - when they are ""
-    # - when thet are chr(0)
-    if (length(x$messages) != 1) {
-        x$messages <- paste0(x$messages, collapse = "\n")
-    }
-
-    if (length(x$warnings) != 1) {
-        x$warnings <- paste0(x$warnings, collapse = "\n")
-    }
-
-    class(x) <- NULL
-    tibble::as_tibble(x)
+    class(y) <- NULL
+    tibble::as_tibble(y)
 }
 
 create_fuzz_runner <- function(db_path, runner) {
