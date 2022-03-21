@@ -1,6 +1,6 @@
 #' @importFrom sxpdb open_db path_db
 #' @export
-quick_fuzz <- function(pkg_name, fn_name, db, budget, quiet = !interactive()) {
+quick_fuzz <- function(pkg_name, fn_name, db, budget, generator, quiet = !interactive()) {
     runner <- runner_start(quiet = quiet)
     on.exit(runner_stop(runner, quiet = quiet))
 
@@ -12,9 +12,13 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, quiet = !interactive()) {
 
     origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
 
-    generator <- create_fd_args_generator(pkg_name, fn_name,
-                                          value_db = value_db, origins_db = origins_db, meta_db = NULL,
-                                          budget = budget)
+    if (missing(generator)) {
+        generator <- create_fd_args_generator(
+            pkg_name, fn_name,
+            value_db = value_db, origins_db = origins_db, meta_db = NULL,
+            budget = budget
+        )
+    }
 
     runner_fun <- create_fuzz_runner(runner = runner, db_path = sxpdb::path_db(value_db))
 
