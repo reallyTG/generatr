@@ -16,6 +16,7 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.1.2
 Suggests:
     callr,
+    cpp11,
     contractr,
     future,
     future.callr,
@@ -24,9 +25,10 @@ Suggests:
     sxpdb,
     tarchetypes,
     targets,
-    testthat,
+    testthat (>= 3.0.0),
     tidyverse
 Remotes:
     PRL-PRG/contractr,
     PRL-PRG/runr,
     PRL-PRG/sxpdb
+Config/testthat/edition: 3
