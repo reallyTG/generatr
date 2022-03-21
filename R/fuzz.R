@@ -169,6 +169,7 @@ as_tibble.result <- function(x, ...) {
     tibble::as_tibble(y)
 }
 
+#' @export
 create_fuzz_runner <- function(db_path, runner) {
     # load db in the worker
     ret <- runner_exec(
