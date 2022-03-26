@@ -1,3 +1,35 @@
+test_that("fuzz str_remove", {
+    pkg_name <- "stringr"
+    fn_name <- "str_remove"
+    db_path <- "db/str_remove"
+
+    seed <- list(
+        c(0L, 1L)
+    )
+
+    runner <- runner_start()
+    on.exit(runner_stop(runner))
+    runner_fun <- create_fuzz_runner(db_path, runner)
+
+    value_db <- sxpdb::open_db(db_path)
+    origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
+    meta_db <- NULL
+
+    generator <- create_seeded_args_generator(value_db, seed)
+    budget <- remaining(generator)
+
+    df <- fuzz(
+        pkg_name = pkg_name,
+        fn_name = fn_name,
+        generator = generator,
+        runner = runner_fun
+    )
+
+    expect_equal(nrow(df), budget)
+    expect_equal(df$status, 2)
+
+})
+
 test_that("fuzz one function", {
 
     pkg_name <- "stringr"

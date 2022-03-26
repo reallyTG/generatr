@@ -1,8 +1,12 @@
+#' @importFrom tibble as_tibble
+#' @importFrom magrittr %>%
 #' @importFrom sxpdb open_db path_db
 #' @export
-quick_fuzz <- function(pkg_name, fn_name, db, budget, generator, quiet = !interactive()) {
-    runner <- runner_start(quiet = quiet)
-    on.exit(runner_stop(runner, quiet = quiet))
+quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, generator, quiet = !interactive()) {
+    runner <- if (missing(runner)) {
+        runner_start(quiet = quiet)
+        on.exit(runner_stop(runner, quiet = quiet))
+    }
 
     value_db <- if (is.character(db)) {
         sxpdb::open_db(db)
@@ -10,7 +14,9 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, generator, quiet = !intera
         db
     }
 
-    origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
+    if (missing(origins_db)) {
+        origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
+    }
 
     if (missing(generator)) {
         generator <- create_fd_args_generator(
@@ -169,6 +175,7 @@ as_tibble.result <- function(x, ...) {
     tibble::as_tibble(y)
 }
 
+#' @importFrom rlang exec
 #' @export
 create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
     # load db in the worker
@@ -194,7 +201,7 @@ create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
                 }
                 args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
                 fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
-                do.call(fn, args)
+                rlang::exec(fn, !!!args)
             },
             list(pkg_name, fn_name, args_idx, db_path),
             timeout_ms = timeout_ms
