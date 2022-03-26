@@ -1,15 +1,19 @@
 #' @importFrom purrr map map_int transpose
 #' @importFrom dplyr filter select
 #' @export
-create_existing_args_generator <- function(pkg_name, fn_name, value_db, origins_db) {
+create_existing_args_generator <- function(pkg_name, fn_name, value_db, origins_db, lib_loc = .libPaths()) {
     seen_values <- dplyr::filter(origins_db, pkg_name == pkg_name, fun == fn_name)
-    fun <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+
+    fn_formals <- withr::with_libpaths(
+        lib_loc,
+        formals(get(fn_name, envir = getNamespace(pkg_name), mode = "function"))
+    )
 
     # the following is quite wrong:
     # the problem is that we keep just individual values
     # and not calls - we do not know which were used together
     # here is just something to put it together
-    params <- names(formals(fun))
+    params <- names(fn_formals)
 
     # TODO: support ...
     params <- params[params != "..."]

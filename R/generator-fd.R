@@ -1,7 +1,7 @@
 #' @importFrom purrr map
 #' @importFrom dplyr filter select
 #' @export
-create_fd_args_generator <- function(pkg_name, fn_name, value_db, origins_db, meta_db, budget) {
+create_fd_args_generator <- function(pkg_name, fn_name, value_db, origins_db, meta_db, budget, lib_loc = .libPaths()) {
     state <- new.env(parent = emptyenv())
     class(state) <- "fd_gen"
 
@@ -15,10 +15,13 @@ create_fd_args_generator <- function(pkg_name, fn_name, value_db, origins_db, me
     # First, filter origins_db to get only things from the pkg::fn_name.
     state$seen_values <- origins_db %>% filter(pkg_name == pkg_name, fun == fn_name)
 
-    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+    fn_formals <- withr::with_libpaths(
+        lib_loc,
+        formals(get(fn_name, envir = getNamespace(pkg_name), mode = "function"))
+    )
 
     # Use these values as initial seeds for the value_db.
-    state$arg_seeds <- formals(fn) %>%
+    state$arg_seeds <- fn_formals %>%
         names %>%
         map(function(x) state$seen_values %>%
             filter(param == !!x) %>%
@@ -27,7 +30,7 @@ create_fd_args_generator <- function(pkg_name, fn_name, value_db, origins_db, me
             unname %>%
             map(function(y) sxpdb::get_value_idx(value_db, y)))
 
-    names(state$arg_seeds) <- names(formals(fn))
+    names(state$arg_seeds) <- names(fn_formals)
 
     # Ok. Now, we want to gradually tighten up constraints.
     state$RELAX <- c("na", "length", "attributes", "vector", "ndims", "class", "type")

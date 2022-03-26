@@ -1,14 +1,15 @@
 #' @export
-runner_start <- function(quiet = TRUE) {
+runner_start <- function(lib_loc = .libPaths(), quiet = TRUE) {
     runner <- new.env(parent = emptyenv())
-    runner$sess <- runner_create(quiet)
+    runner$sess <- runner_create(lib_loc = lib_loc, quiet = quiet)
+    runner$lib_loc <- lib_loc
     class(runner) <- "runner"
     runner
 }
 
 #' @importFrom callr r_session
-runner_create <- function(quiet = TRUE) {
-    sess <- callr::r_session$new(wait = TRUE)
+runner_create <- function(lib_loc = .libPaths(), quiet = TRUE) {
+    sess <- callr::r_session$new(wait = TRUE, options = callr::r_session_options(libpath = lib_loc))
     if (sess$get_state() != "idle") {
         stop("Unable to start R session: ", sess)
     }
@@ -43,7 +44,7 @@ runner_stop <- function(runner, quiet = TRUE) {
 runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000) {
     sess <- runner$sess
     if (sess$get_state() == "finished") {
-        sess <- runner_create()
+        sess <- runner_create(lib_loc = runner$lib_loc)
         runner$sess <- sess
     }
 
