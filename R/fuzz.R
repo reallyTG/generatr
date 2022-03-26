@@ -170,7 +170,7 @@ as_tibble.result <- function(x, ...) {
 }
 
 #' @export
-create_fuzz_runner <- function(db_path, runner) {
+create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
     # load db in the worker
     ret <- runner_exec(
         runner,
@@ -196,7 +196,8 @@ create_fuzz_runner <- function(db_path, runner) {
                 fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
                 do.call(fn, args)
             },
-            list(pkg_name, fn_name, args_idx, db_path)
+            list(pkg_name, fn_name, args_idx, db_path),
+            timeout_ms = timeout_ms
         )
     }
 }

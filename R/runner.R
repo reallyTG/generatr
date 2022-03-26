@@ -40,7 +40,7 @@ runner_stop <- function(runner, quiet = TRUE) {
 #    - result: any       the result of calling fun with args
 #    - warnings: chr[]   the warnings that occurred during the call
 #' @export
-runner_exec <- function(runner, fun, args) {
+runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000) {
     sess <- runner$sess
     if (sess$get_state() == "finished") {
         sess <- runner_create()
@@ -48,10 +48,34 @@ runner_exec <- function(runner, fun, args) {
     }
 
     tryCatch({
-        ret <- sess$run(generatr::safely(fun), args, package = TRUE)
+        state <- sess$get_state()
+
+        if (state != "idle") {
+            stop("R session is not ready: ", state)
+        }
+
+        sess$call(generatr::safely(fun), args, package = TRUE)
+        state <- sess$poll_process(timeout_ms)
+
+        ret <- switch(
+            state,
+            ready = {
+                v <- sess$read()
+                if (v$code == 200) {
+                    v$result
+                } else if (v$code == 501) {
+                    stop(v$message)
+                } else {
+                    stop("Call failed ", v$code, " (", v$message, ")")
+                }
+            },
+            timeout = stop("Timeout")
+        )
+
         c(ret, list(exit = NA_integer_))
     }, error = function(e) {
-        # IMHO - this should only happen if the underlying R session crashes
+        # this should only happen if the underlying R session crashes
+        # or timeout
         r <- list(
             error = e$message,
             exit = NA_integer_,
@@ -61,9 +85,14 @@ runner_exec <- function(runner, fun, args) {
             warnings = NA_character_
         )
 
-        if (sess$get_state() == "finished") {
+        state <- sess$get_state()
+
+        if (state == "finished") {
             r$exit <- sess$get_exit_status()
+        } else if (state == "busy") {
+            sess$close(0L)
         }
+
 
         r
     })
@@ -80,7 +109,11 @@ print.runner <- function(x, ...) {
 #' @export
 safely <- function(.f) {
   .f <- purrr:::as_mapper(.f)
-  function(...) generatr::capture_all(.f(...))
+  function(...) {
+      v <- generatr::capture_all(.f(...))
+      assign("..ANS", v, envir = globalenv())
+      v
+  }
 }
 
 #' @export
