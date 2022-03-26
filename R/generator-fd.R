@@ -44,6 +44,7 @@ remaining.fd_gen <- function(state) {
 }
 
 #' @importFrom purrr map_int
+#' @importFrom sxpdb relax_query sample_index query_from_value
 generate_args.fd_gen <- function(state) {
     if (state$i >= state$budget) {
         return(NULL)
@@ -59,17 +60,17 @@ generate_args.fd_gen <- function(state) {
             if (length(lfp) == 0) {
                 # Here, there haven't been any observed values for this parameter.
                 # We will just sample randomly until one succeeds.
-                sample_index(state$value_db)
+                sxpdb::sample_index(state$value_db)
             } else {
                 seed_for_this_param <- sample(lfp, 1)
-                q <- query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
+                q <- sxpdb::query_from_value(seed_for_this_param);#no need to call close_query thanks to GC
                 idx <- NULL
                 # TODO: what to do it it is a NULL?
                 j <- 1
                 relax_this_time <- sample(state$RELAX, (state$budget - state$i) / state$budget * length(state$RELAX))
                 while (is.null(idx) && j <= length(state$RELAX)) {
-                    relax_query(q, relax_this_time)
-                    idx <- sample_index(state$value_db, q)
+                    sxpdb::relax_query(q, relax_this_time)
+                    idx <- sxpdb::sample_index(state$value_db, q)
                     relax_this_time <- unique(c(relax_this_time, state$RELAX[[j]]))
                     j <- j + 1
                 }
