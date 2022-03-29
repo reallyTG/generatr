@@ -4,8 +4,9 @@
 #' @export
 quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, generator, quiet = !interactive()) {
     runner <- if (missing(runner)) {
-        runner_start(quiet = quiet)
+        tmp <- runner_start(quiet = quiet)
         on.exit(runner_stop(runner, quiet = quiet))
+        tmp
     }
 
     value_db <- if (is.character(db)) {
@@ -38,7 +39,8 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, genera
 #' @export
 fuzz <- function(pkg_name, fn_name, generator, runner,
                  quiet = !interactive(),
-                 get_type = contractr::infer_type) {
+                 get_type = contractr::infer_type,
+                 timeout_s = 60 * 60) {
 
     # returns a list
     # - args_idx: int[]    - indicies to be used for the args
@@ -135,6 +137,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
     collected_results <- new.env(parent = emptyenv())
     i <- 1
     cont <- TRUE
+    start_time <- Sys.time()
     while (cont) {
         run <- run_one()
         if (is.null(run)) {
@@ -143,6 +146,10 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             assign(as.character(i), run, envir = collected_results)
             i <- i + 1
             tick()
+            if (Sys.time() - start_time > timeout_s) {
+                cont <- FALSE
+                warning("Timeout (", timeout_s, " sec) reached after ", i, " calls")
+            }
         }
     }
 
@@ -175,7 +182,7 @@ as_tibble.result <- function(x, ...) {
     tibble::as_tibble(y)
 }
 
-#' @importFrom rlang exec
+#
 #' @export
 create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
     # load db in the worker
@@ -188,8 +195,8 @@ create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
         list(db_path)
     )
 
-    if (ret$result != 0L) {
-        stop("Unable to load DB in the runner: ", format(ret))
+    if (!is.integer(ret$result) || ret$result != 0L) {
+        stop("Unable to load DB in the runner: (error=", ret$error, ", exit=", ret$exit, ")")
     }
 
     function(pkg_name, fn_name, args_idx) {

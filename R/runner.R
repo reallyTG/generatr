@@ -24,6 +24,7 @@ runner_create <- function(lib_loc = .libPaths(), quiet = TRUE) {
 runner_stop <- function(runner, quiet = TRUE) {
     sess <- runner$sess
     if (sess$get_state() != "finished") {
+        sess$run(function() if (exists(".DB", envir = globalenv())) sxpdb::close_db(.DB))
         if (!quiet) {
             message("Stopped runner:", format(sess))
         }

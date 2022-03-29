@@ -104,3 +104,35 @@ test_that("fuzz one function", {
 
     expect_equal(nrow(df), budget)
 })
+
+test_that("fuzz one function with timeout", {
+    pkg_name <- "stringr"
+    fn_name <- "str_dup"
+    db_path <- "db/str_dup"
+
+    seed <- lapply(1:100, function(x) c(0L, 1L))
+
+    runner <- runner_start()
+    on.exit(runner_stop(runner))
+    runner_fun <- create_fuzz_runner(db_path, runner)
+
+    value_db <- sxpdb::open_db(db_path)
+    origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
+    meta_db <- NULL
+
+    generator <- create_seeded_args_generator(value_db, seed)
+    budget <- remaining(generator)
+
+    expect_warning(
+        df <- fuzz(
+            pkg_name = pkg_name,
+            fn_name = fn_name,
+            generator = generator,
+            runner = runner_fun,
+            timeout_s = 2
+        ),
+        regex = "Timeout \\(2 sec\\) reached after \\d+ calls"
+    )
+
+    expect_equal(nrow(df) < budget, TRUE)
+})
