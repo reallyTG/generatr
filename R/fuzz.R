@@ -127,6 +127,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
     tick <- if (!quiet) {
         pb <- progress::progress_bar$new(
             format = paste0("  fuzzing ", pkg_name, ":::", fn_name, " [:bar] :current/:total (:percent) :elapsed"),
+            force = TRUE,
             total = remaining(generator), clear = FALSE, width = 80
         )
         function() pb$tick()
