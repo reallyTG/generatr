@@ -185,3 +185,13 @@ top_level_split <- function(t, split, just_one=TRUE, init_num_brackets = 0, init
 get_arg_values_for_slice <- function(df) {
     df %>% select(ends_with("_v")) %>% unlist %>% map(eval_tidy)
 }
+
+metadata_from_value <- function(v) {
+  return(list(sexptype = typeof(v),
+            classes = list(class(v)),
+            length = length(v),
+            n_attributes = length(attributes(v)),
+            n_dims = length(dim(v)),
+            n_rows = if(!is.null(dim(v))) nrow(v) else 0,
+            has_na = anyNA(v)))
+}
