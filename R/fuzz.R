@@ -173,8 +173,7 @@ as_tibble.result <- function(x, ...) {
 
     y$result <- NULL
     y$args_idx <- fix(x$args_idx)
-    y$output <- trimws(y$output)
-    y$output <- if (is.na(y$output) || nchar(y$output) == 0) NA_character_ else y$output
+    y$output <- fix(trimws(y$output))
     y$messages <- fix(x$messages)
     y$warnings <- fix(x$warnings)
 
