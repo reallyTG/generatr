@@ -43,7 +43,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
                  timeout_s = 60 * 60) {
 
     # returns a list
-    # - args_idx: int[]    - indicies to be used for the args
+    # - args_idx: int[]    - indices to be used for the args
     # - error: chr         - the error from the function
     # - exit: int          - the exit code if the R session has crashed or 0
     # - messages: chr[]    - messages captured during the call
@@ -51,7 +51,8 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
     # - result: any        - the function return value
     # - warnings: chr[]    - warnings captured during the call
     # - status: int        - 0 is OK, 1: warnings, 2: error, 3: crash, -1: generate_args failure, -2: runner failure
-    # - signature: chr       - the signatrue inferred from the call (using `get_type`)
+    # - signature: chr       - the signature inferred from the call (using `get_type`)
+    # - columns about the result: sexptype, classes, length, number of attributes, number of dimensions, number of rows, presence of NA
     run_one <- function() {
         res <- list(
             args_idx = NA_integer_,
@@ -119,6 +120,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             sig_args <- purrr::map_chr(res$args_idx, ~get_type(get_value(generator, .)))
             sig_args <- paste0(sig_args, collapse = ", ")
             res$signature <- paste0("(", sig_args, ") -> ", get_type(res$result))
+            append(res, metadata_from_value(res$result))
         }
 
         tibble::as_tibble(res)
