@@ -120,7 +120,8 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             sig_args <- purrr::map_chr(res$args_idx, ~get_type(get_value(generator, .)))
             sig_args <- paste0(sig_args, collapse = ", ")
             res$signature <- paste0("(", sig_args, ") -> ", get_type(res$result))
-            append(res, metadata_from_value(res$result))
+            # append(res, metadata_from_value(res$result)) # For some reason this didn't work for me?
+            res$return_metadata <- list(metadata_from_value(res$result))
         }
 
         tibble::as_tibble(res)
