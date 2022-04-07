@@ -186,12 +186,15 @@ get_arg_values_for_slice <- function(df) {
     df %>% select(ends_with("_v")) %>% unlist %>% map(eval_tidy)
 }
 
+forbidden_types <- c("environment", "closure")
 metadata_from_value <- function(v) {
-  return(list(sexptype = typeof(v),
-            classes = list(class(v)),
-            length = length(v),
-            n_attributes = length(attributes(v)),
-            n_dims = length(dim(v)),
-            n_rows = if(!is.null(dim(v))) nrow(v) else 0,
-            has_na = anyNA(v)))
+  typeOfV <- typeof(v)
+  
+  list( sexptype = typeOfV,
+        classes = list(class(v)),
+        length = length(v),
+        n_attributes = length(attributes(v)),
+        n_dims = length(dim(v)),
+        n_rows = if(!is.null(dim(v))) nrow(v) else 0,
+        has_na = if (typeOfV %in% forbidden_types) FALSE else anyNA(v))
 }
