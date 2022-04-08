@@ -7,6 +7,8 @@ CLASS_KW <- "class"
 TICK <- "`"
 OPEN_CHEV <- "<"
 CLOSE_CHEV <- ">"
+OPEN_PAREN <- "("
+CLOSE_PAREN <- ")"
 COMMA <- ","
 
 char_at <- function(str, index) {
@@ -110,6 +112,83 @@ parse_type <- function(type_string) {
 
     list(fun_name = fun_name,
          parameter_types = parameter_types,
+         return_type = return_type)
+}
+
+# Parse a signature returned by the fuzzer.
+#' @export
+parse_signature <- function(type_string) {
+    chev_level <- 0
+    in_chev <- FALSE
+    done_parameters <- FALSE
+    paren_level <- 0
+    index <- 1
+    last_index <- 1
+    last_arrow_index <- -1
+    paren_index <- 1
+
+    parameter_types <- c()
+    return_type <- ""
+
+    # iterate through the string
+    while (index <= nchar(type_string)) {
+        char_now <- char_at(type_string, index)
+
+        if (char_now == OPEN_CHEV) {
+            in_chev <- !in_chev
+            chev_level <- chev_level + 1
+        }
+
+        if (char_now == CLOSE_CHEV) {
+            if (char_at(type_string, index - 1) == "-") {
+                # We are actually dealing with the transition to the return type.
+                last_arrow_index <- index
+            } else {
+                in_chev <- !in_chev
+                chev_level <- chev_level - 1
+            }
+        }
+
+        if (in_chev) {
+            index <- index + 1
+            next()
+        }
+
+        if (char_now == OPEN_PAREN) {
+            paren_level <- paren_level + 1
+            if (paren_level == 1) {
+                last_index <- index
+            }
+        }
+
+        if (char_now == CLOSE_PAREN) {
+            paren_level <- paren_level - 1
+            if (paren_level == 0 && !done_parameters) {
+                # We're parsing the last type.
+                parameter_types <- c(parameter_types, str_trim(substring(type_string, last_index + 1, index - 1)))
+                done_parameters <- TRUE
+            }
+        }
+
+        # At this stage, we are at the "top level" of the type, i.e., we are parsing in the major < ... > top-level angle brackets.
+        if (paren_level == 1) {
+            if (char_now == COMMA && !done_parameters) {
+                # Here, we must have seen a parameter type. 
+                # +1, -1 to get rid of leading and trailing crap.
+                parameter_types <- c(parameter_types, str_trim(substring(type_string, last_index + 1, index - 1)))
+                last_index <- index
+            }
+        }
+
+        # Parsing a return type.
+        if (paren_level == 0 && last_arrow_index != -1) {
+            return_type <- substring(type_string, last_arrow_index + 2)
+        }
+
+        index <- index + 1
+    }
+
+    list(parameter_types = parameter_types,
          return_type = return_type)
 }
 
