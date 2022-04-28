@@ -632,3 +632,89 @@ print_signatures_from_df <- function(df) {
                paste(paste(row[1:(length(row)-1)], collapse=", "), "->", row[[length(row)]])
            }, MARGIN=1)
 }
+                                      
+# Missing function from the Types for R OOPSLA'20 Artifact.
+split_up_names_and_types <- function(t) {
+
+    # For dealing with `names`
+    parsing_name <- FALSE
+
+    # Trim leading and trailing brackets.
+    # t <- substr(t, 3, nchar(t) - 2)
+    # Trim leading and trailing stuff.
+    if (substr(t, 1, 2) == "st") {
+        t <- substr(t, 8, nchar(t) - 1)
+    } else if (substr(t, 1, 2) == "li") {
+        t <- substr(t, 6, nchar(t) - 1)
+    } else if (substr(t, 1, 2) == "tu") {
+        t <- substr(t, 7, nchar(t) - 1)
+    }
+
+    # How many levels (outside of the first 2) ((, [[, {{ are we in?
+    nest_level <- 0
+    last_char <- ""
+
+    colon_indices <- c()
+    comma_indices <- c(1)
+
+    for (i in 1:nchar(t)) {
+        this_char <- substr(t, i, i)
+
+        if (this_char == "`")
+            parsing_name <- !parsing_name
+
+        if (!parsing_name) {
+            if (this_char == "s" && substr(t, i, i+5) == "struct") {
+                nest_level <- nest_level + 1
+            } else if (this_char == ">" && last_char != "=") {
+                nest_level <- nest_level - 1
+            } else if (this_char == "l" && substr(t, i, i+3) == "list") {
+                nest_level <- nest_level + 1
+            } else if (this_char == "t" && substr(t, i, i+4) == "tuple") {
+                nest_level <- nest_level + 1
+            } else if (nest_level == 0 && this_char == ":") {
+                # here, we are at the top level
+                colon_indices <- c(colon_indices, i)
+            } else if (nest_level == 0 && this_char == ",") {
+                comma_indices <- c(comma_indices, i)
+            }
+        }
+        last_char <- this_char
+    }
+
+    comma_indices <- c(comma_indices, nchar(t) + 1)
+    
+    # take indices and make lists of name:type pairs
+    # deal with one edge case:
+    if (is.null(comma_indices)) {
+        name <- substr(t, 1, colon_indices[1] - 1)
+        type <- substr(t, colon_indices[1] + 1, nchar(t))
+
+        names(type) <- c(name)
+        type
+
+    # deal with case where its a list with no names
+    } else if (is.null(colon_indices)) {
+        types <- c()
+
+        # hack for dealing with fact that we need to, most of the time, account for ", " separator.
+        comma_indices[1] <- -1
+        for (i in 1:(length(comma_indices)-1)) {
+            # + 2 for the fact that the sep is ", "
+            types <- c(types, substr(t, comma_indices[i] + 2, comma_indices[i+1] - 1))
+        }
+
+        types
+    } else {
+        names <- c()
+        types <- c()
+        comma_indices[1] <- comma_indices[1] - 2
+        for (i in 1:(length(colon_indices))) {
+            names <- c(names, substr(t, comma_indices[i] + 2, colon_indices[i] - 1))
+            types <- c(types, substr(t, colon_indices[i] + 1, comma_indices[i+1] - 1))
+        }
+
+        names(types) <- names
+        types
+    }
+}
