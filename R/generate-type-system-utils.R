@@ -718,3 +718,54 @@ split_up_names_and_types <- function(t) {
         types
     }
 }
+                                      
+# For splitting structs up.
+split_up_struct_names_and_types <- function(t) {
+    num_l <- 0
+    num_b <- 0
+
+    parsing_name <- FALSE
+
+    indices <- c()
+
+    for (i in 1:nchar(t)) {
+        this_char <- substr(t, i, i)
+
+        if (this_char == "`")
+            parsing_name <- !parsing_name
+
+        if (!parsing_name) {
+            if (num_l == 0 && this_char == "<") {
+                indices <- c(indices, i)
+            }
+
+            if (this_char == "<") {
+                num_l <- num_l + 1
+            } else if (this_char == ">") {
+                num_l <- num_l - 1 # matching
+
+                if (num_l == 0) {
+                    # here, we are done
+                    indices <- c(indices, i)
+                    break
+                }
+            } else if (num_l == 1 && num_b == 0 && this_char == "~") {
+                # here, we are at the top level
+                indices <- c(indices, i)
+            } else if (this_char == "[") {
+                num_b <- num_b + 1
+            } else if (this_char == "]") {
+                num_b <- num_b - 1
+            }
+        }
+    }
+
+    # take indices and make lists of name:type pairs
+    r <- c()
+    for (i in 1:(length(indices)-1)) {
+        r <- c(r, substr(t, indices[i] + 1, indices[i+1] - 1))
+    }
+
+    # return    
+    r
+}
