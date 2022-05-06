@@ -1,1 +1,6 @@
 out
+/.cache/
+/.RData
+/.Rhistory
+compile_commands.json
+/tags

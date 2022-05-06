@@ -1,5 +1,10 @@
+BEAR := $(shell command -v bear 2> /dev/null)
 NAME := generatr
 R    ?= R
+
+ifdef BEAR
+	BEAR := $(BEAR) --
+endif
 
 .PHONY: all build check clean document test install
 
@@ -23,4 +28,4 @@ test:
 	$(R) -e 'devtools::test()'
 
 install:
-	$(R) CMD INSTALL .
+	$(BEAR) $(R) CMD INSTALL .

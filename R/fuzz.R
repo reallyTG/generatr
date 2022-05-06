@@ -96,7 +96,12 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             res$warnings <- r$warnings
 
             if (!is.null(r$result)) {
-                res$result <- r$result
+                if (inherits(r$result, "dispatch_result")) {
+                    res$result <- r$result$result
+                    res$dispatch <- r$result$dispatch
+                } else {
+                    res$result <- r$result
+                }
             }
             if (any(!is.na(res$warnings))) {
                 res$status <- 1L
@@ -211,7 +216,7 @@ create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
                 }
                 args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
                 fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
-                rlang::exec(fn, !!!args)
+                generatr::trace_dispatch_call(fn, args);
             },
             list(pkg_name, fn_name, args_idx, db_path),
             timeout_ms = timeout_ms
