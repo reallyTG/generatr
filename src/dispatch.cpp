@@ -6,52 +6,61 @@
 
 #include "dispatch.h"
 
-typedef std::unordered_map<SEXP, std::unordered_set<std::string>> DispatchState;
+typedef struct {
+  SEXP current_arg;
+  std::unordered_map<SEXP, std::unordered_set<std::string>> args;
+} DispatchState;
 
-void S3_dispatch_exit_callback(dyntracer_t *tracer, const char *generic,
+void S3_generic_entry(dyntracer_t *tracer, const char *generic,
+                      const SEXP generic_method, const SEXP obj) {
+  auto state = (DispatchState *)dyntracer_get_data(tracer);
+
+  if (RTRACE(obj)) {
+    state->current_arg = obj;
+  } else {
+    state->current_arg = R_NilValue;
+  }
+}
+
+void S3_dispatch_entry_callback(dyntracer_t *tracer, const char *generic,
                                 const SEXP cls, const SEXP generic_method,
                                 const SEXP specific_method,
-                                const SEXP objects, const SEXP ans) {
+                                const SEXP objects) {
 
   auto state = (DispatchState *)dyntracer_get_data(tracer);
+  if (state->current_arg == R_NilValue) {
+    return;
+  }
+
   dyntrace_disable();
 
-  for (SEXP x = objects; x != R_NilValue; x = CDR(x)) {
-    SEXP v = CAR(x);
-
-    if (TYPEOF(v) == PROMSXP) {
-      if (PRVALUE(v) != R_UnboundValue) {
-        v = PRVALUE(v);
-      } else {
-        continue;
-      }
-    }
-
-    if (!RTRACE(v)) {
-      continue;
-    }
-
-    for (int i = 0; i < Rf_length(cls); i++) {
-      SEXP c = STRING_ELT(cls, i);
-      std::string r = CHAR(c);
-      r += "::";
-      r += generic;
-      (*state)[v].insert(r);
-    }
+  for (int i = 0; i < Rf_length(cls); i++) {
+    SEXP c = STRING_ELT(cls, i);
+    std::string r = CHAR(c);
+    r += "::";
+    r += generic;
+    state->args[state->current_arg].insert(r);
   }
 
   dyntrace_enable();
+
+  state->current_arg = R_NilValue;
 }
 
 dyntracer_t *create_tracer() {
   dyntracer_t *tracer = dyntracer_create(NULL);
 
-  dyntracer_set_S3_dispatch_exit_callback(
+  dyntracer_set_S3_generic_entry_callback(
+      tracer, [](dyntracer_t *tracer, const char *generic,
+                 const SEXP generic_method, const SEXP obj) {
+        S3_generic_entry(tracer, generic, generic_method, obj);
+      });
+  dyntracer_set_S3_dispatch_entry_callback(
       tracer, [](dyntracer_t *tracer, const char *generic, const SEXP cls,
                  const SEXP generic_method, const SEXP specific_method,
-                 const SEXP objects, const SEXP ans) {
-        S3_dispatch_exit_callback(tracer, generic, cls, generic_method,
-                                   specific_method, objects, ans);
+                 const SEXP objects) {
+        S3_dispatch_entry_callback(tracer, generic, cls, generic_method,
+                                   specific_method, objects);
       });
 
   return tracer;
@@ -90,8 +99,8 @@ SEXP trace_dispatch_call(SEXP fun, SEXP args, SEXP rho) {
     SET_RTRACE(arg, 0);
     SEXP v;
 
-    auto it = state.find(arg);
-    if (it != state.end()) {
+    auto it = state.args.find(arg);
+    if (it != state.args.end()) {
       auto r = it->second;
 
       v = PROTECT(Rf_allocVector(STRSXP, r.size()));

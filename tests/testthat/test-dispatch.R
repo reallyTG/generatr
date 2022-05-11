@@ -42,3 +42,28 @@ test_that("group dispatch", {
     expect_equal(as.integer(ret$result), 42)
     expect_equal(ret$dispatch, list(x = "A::+", y = character(0)))
 })
+
+test_that("group dispatch", {
+    `+.A` <- function(x, y) {
+        42
+    }
+    `+.B` <- function(x, y) {
+        82
+    }
+
+    a <- 0
+    class(a) <- "A"
+    b <- 1
+    class(b) <- "B"
+
+    foo <- function(x, y, z) {
+        x + y + z
+    }
+
+    ret <- trace_dispatch_call(foo, list(a, 1, b))
+
+    expect_equal(length(ret), 3)
+    expect_equal(ret$status, 0)
+    expect_equal(as.integer(ret$result), 82)
+    expect_equal(ret$dispatch, list(x = "A::+", y = character(0), z = "B::+"))
+})
