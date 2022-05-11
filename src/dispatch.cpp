@@ -32,11 +32,11 @@ void S3_dispatch_entry_callback(dyntracer_t *tracer, const char *generic,
     }
 
     for (int i = 0; i < Rf_length(cls); i++) {
-        SEXP c = STRING_ELT(cls, i);
-        std::string r = CHAR(c);
-        r += ".";
-        r += generic; 
-        (*state)[v].insert(r);
+      SEXP c = STRING_ELT(cls, i);
+      std::string r = CHAR(c);
+      r += "::";
+      r += generic;
+      (*state)[v].insert(r);
     }
   }
 
@@ -88,15 +88,13 @@ SEXP trace_dispatch_call(SEXP fun, SEXP args, SEXP rho) {
   dyntracer_set_data(tracer, (void *)&state);
 
   SEXP call = R_NilValue;
-  {
-    for (int i = Rf_length(args) - 1; i >= 0; i--) {
-        SEXP arg = VECTOR_ELT(args, i);
-        SET_RTRACE(arg, 1);
+  for (int i = Rf_length(args) - 1; i >= 0; i--) {
+    SEXP arg = VECTOR_ELT(args, i);
+    SET_RTRACE(arg, 1);
 
-        PROTECT(call);
-        call = Rf_lcons(arg, call);
-        UNPROTECT(1);
-    }
+    PROTECT(call);
+    call = Rf_lcons(arg, call);
+    UNPROTECT(1);
   }
 
   call = PROTECT(Rf_lcons(fun, call));
@@ -126,21 +124,28 @@ SEXP trace_dispatch_call(SEXP fun, SEXP args, SEXP rho) {
     } else {
       v = PROTECT(Rf_allocVector(STRSXP, 0));
     }
-       
+
     SET_VECTOR_ELT(table, i, v);
     UNPROTECT(1); // v
   }
 
-  SEXP formals = FORMALS(fun);
-  if (formals != R_NilValue) {
-    Rf_setAttrib(table, R_NamesSymbol, Rf_getAttrib(formals, R_NamesSymbol));
+  if (TYPEOF(fun) == CLOSXP) {
+    SEXP formals = FORMALS(fun);
+    if (formals != R_NilValue) {
+      Rf_setAttrib(table, R_NamesSymbol, Rf_getAttrib(formals, R_NamesSymbol));
+    }
   }
 
-  const char *names[] = {"status", "result", "dispatch", "" };
+  const char *names[] = {"status", "result", "dispatch", ""};
   SEXP ret = PROTECT(Rf_mkNamed(VECSXP, names));
   SET_VECTOR_ELT(ret, 0, Rf_ScalarInteger(result.error_code));
   SET_VECTOR_ELT(ret, 1, result.error_code == 0 ? result.value : R_NilValue);
   SET_VECTOR_ELT(ret, 2, table);
+  // if (R_CollectWarnings > 0) {
+  //   SET_VECTOR_ELT(ret, 3, Rf_getAttrib(R_Warnings, R_NamesSymbol));
+  // } else {
+  //   SET_VECTOR_ELT(ret, 3, R_NaString);
+  // }
   Rf_setAttrib(ret, R_ClassSymbol, Rf_mkString("dispatch_result"));
   UNPROTECT(2); // ret + table
 

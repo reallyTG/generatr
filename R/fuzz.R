@@ -16,7 +16,7 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, genera
     }
 
     if (missing(origins_db)) {
-        origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble
+        origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble()
     }
 
     if (missing(generator)) {
@@ -43,89 +43,73 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
                  timeout_s = 60 * 60) {
 
     # returns a list
-    # - args_idx: int[]    - indices to be used for the args
-    # - error: chr         - the error from the function
-    # - exit: int          - the exit code if the R session has crashed or 0
-    # - messages: chr[]    - messages captured during the call
-    # - output: chr        - output captured during the call
-    # - result: any        - the function return value
-    # - warnings: chr[]    - warnings captured during the call
-    # - status: int        - 0 is OK, 1: warnings, 2: error, 3: crash, -1: generate_args failure, -2: runner failure
-    # - signature: chr       - the signature inferred from the call (using `get_type`)
-    # - columns about the result: sexptype, classes, length, number of attributes, number of dimensions, number of rows, presence of NA
+    # - args_idx: int[]       - indices to be used for the args
+    # - error: chr            - the error from the function
+    # - exit: int             - the exit code if the R session has crashed or 0
+    # - output: chr           - output captured during the call
+    # - result: any           - the function return value
+    # - status: int           - 0 is OK, 1: error, 2: crash, -1: generate_args failure, -2: runner failure
+    # - signature: chr          - the signature inferred from the call (using `get_type`)
+    # - return_metadata: list -  sexptype, classes, length, number of attributes, number of dimensions, number of rows, presence of NA
     run_one <- function() {
         res <- list(
             args_idx = NA_integer_,
             error = NA_character_,
             exit = NA_integer_,
-            messages = NA_character_,
             output = NA_character_,
             result = NULL,
             signature = NA_character_,
-            status = 0L,
-            warnings = NA_character_
+            status = 0L
         )
         class(res) <- "result"
 
-        tryCatch({
-            res$args_idx <- generate_args(generator)
+        tryCatch(
+            {
+                res$args_idx <- generate_args(generator)
 
-            if (is.null(res$args_idx)) {
-                return(NULL)
-            }
+                if (is.null(res$args_idx)) {
+                    return(NULL)
+                }
 
-            if (!is.integer(res$args_idx)) {
-                stop("Generated value indices are not integers!")
+                if (!is.integer(res$args_idx)) {
+                    stop("Generated value indices are not integers!")
+                }
+            },
+            error = function(e) {
+                res$error <<- paste("fuzz-generate-args:", e$message)
+                res$status <<- -1L
             }
-        }, error = function(e) {
-            res$error <<- paste("fuzz-generate-args:", e$message)
-            res$status <<- -1L
-        })
+        )
 
         if (res$status != 0) {
             return(tibble::as_tibble(res))
         }
 
-        tryCatch({
-            r <- runner(pkg_name, fn_name, res$args_idx)
+        tryCatch(
+            {
+                ts <- system.time(r <- runner(pkg_name, fn_name, res$args_idx))
+                res <- modifyList(res, r)
+                res$ts_run <- as.numeric(ts["elapsed"])
 
-            res$error <- r$error
-            res$messages <- r$messages
-            res$output <- r$output
-            res$exit <- r$exit
-            res$warnings <- r$warnings
-
-            if (!is.null(r$result)) {
-                if (inherits(r$result, "dispatch_result")) {
-                    res$result <- r$result$result
-                    res$dispatch <- r$result$dispatch
-                } else {
-                    res$result <- r$result
+                if (!is.na(res$error)) {
+                    res$status <- 1L
                 }
+                if (!is.na(res$exit)) {
+                    res$status <- 2L
+                }
+            },
+            error = function(e) {
+                res$error <<- e$message
+                res$status <<- -2L
             }
-            if (any(!is.na(res$warnings))) {
-                res$status <- 1L
-            }
-            if (!is.na(res$error)) {
-                res$status <- 2L
-            }
-            if (!is.na(res$exit)) {
-                res$status <- 3L
-            }
-        }, error = function(e) {
-            res$error <<- e$message
-            res$status <<- -2L
-        })
+        )
 
         if (res$status == 0L) {
             successful_call(generator, res$args_idx)
-        }
 
-        if (res$status %in% c(0L, 1L)) {
-            sig_args <- purrr::map_chr(res$args_idx, ~get_type(get_value(generator, .)))
+            sig_args <- purrr::map_chr(res$args_idx, ~ get_type(get_value(generator, .)))
             sig_args <- paste0(sig_args, collapse = ", ")
             res$signature <- paste0("(", sig_args, ") -> ", get_type(res$result))
-            # append(res, metadata_from_value(res$result)) # For some reason this didn't work for me?
             res$return_metadata <- list(metadata_from_value(res$result))
         }
 
@@ -170,27 +154,51 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 as_tibble.result <- function(x, ...) {
     y <- x
 
-    fix <- function(v) {
-        if (length(v) == 0) {
-            NA_character_
-        } else if (length(v) == 1 && !is.na(v) && v == "") {
-            NA_character_
-        } else {
-            paste0(v, collapse = ";")
-        }
-    }
-
+    y$args_idx <- paste0(y$args_idx, collapse = ";")
     y$result <- NULL
-    y$args_idx <- fix(x$args_idx)
-    y$output <- fix(trimws(y$output))
-    y$messages <- fix(x$messages)
-    y$warnings <- fix(x$warnings)
 
     class(y) <- NULL
     tibble::as_tibble(y)
 }
 
-#
+invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
+    if (!exists(".DB", envir = globalenv())) {
+        assign(".DB", sxpdb::open_db(db_path), envir = globalenv())
+    }
+
+    ts_args <- system.time(args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx)))
+    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+
+    temp <- file()
+    sink(temp)
+    sink(temp, type = "message")
+
+    options(warn = 2)
+    ts_call <- system.time(ret <- generatr::trace_dispatch_call(fn, args))
+
+    sink()
+    sink(type = "message")
+
+    ret$output <- paste0(readLines(temp, warn = FALSE), collapse = "\n")
+    if (ret$output == "") {
+        ret$output <- NA_character_
+    }
+    close(temp)
+
+    if (ret$status != 0) {
+        ret$error <- geterrmessage()
+    } else {
+        ret$error <- NA_character_
+    }
+
+    ret$status <- NULL
+    # so it can be put into a cell in data frame
+    ret$dispatch <- list(ret$dispatch)
+    ret$ts_args <- as.numeric(ts_args["elapsed"])
+    ret$ts_call <- as.numeric(ts_call["elapsed"])
+    ret
+}
+
 #' @export
 create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
     # load db in the worker
@@ -210,16 +218,10 @@ create_fuzz_runner <- function(db_path, runner, timeout_ms = 60 * 1000) {
     function(pkg_name, fn_name, args_idx) {
         runner_exec(
             runner,
-            function(pkg_name, fn_name, args_idx, db_path) {
-                if (!exists(".DB", envir = globalenv())) {
-                    assign(".DB", sxpdb::open_db(db_path), envir = globalenv())
-                }
-                args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
-                fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
-                generatr::trace_dispatch_call(fn, args);
-            },
+            generatr:::invoke_fun,
             list(pkg_name, fn_name, args_idx, db_path),
-            timeout_ms = timeout_ms
+            timeout_ms = timeout_ms,
+            capture = FALSE
         )
     }
 }

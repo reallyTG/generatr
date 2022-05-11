@@ -189,12 +189,27 @@ get_arg_values_for_slice <- function(df) {
 forbidden_types <- c("environment", "closure")
 metadata_from_value <- function(v) {
   typeOfV <- typeof(v)
-  
-  list( sexptype = typeOfV,
-        classes = list(class(v)),
-        length = length(v),
-        n_attributes = length(attributes(v)),
-        n_dims = length(dim(v)),
-        n_rows = if(!is.null(dim(v))) nrow(v) else 0,
-        has_na = if (typeOfV %in% forbidden_types) FALSE else anyNA(v))
+
+  list(
+    sexptype = typeOfV,
+    classes = class(v),
+    length = length(v),
+    n_attribs = length(attributes(v)),
+    n_dims = length(dim(v)),
+    n_rows = if (!is.null(dim(v))) nrow(v) else 0L,
+    has_na = if (typeOfV %in% forbidden_types) FALSE else anyNA(v)
+  )
 }
+
+create_db <- function(...) {
+    db_path <- tempfile()
+    db <- sxpdb::open_db(db_path, mode = T)
+    values <- list(...)
+    for (x in values) {
+        sxpdb::add_val(db, x)
+    }
+    sxpdb::close_db(db)
+
+    sxpdb::open_db(db_path)
+}
+

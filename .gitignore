@@ -4,3 +4,6 @@ out
 /.Rhistory
 compile_commands.json
 /tags
+/.gdb_history
+/src/*.o
+/src/*.so

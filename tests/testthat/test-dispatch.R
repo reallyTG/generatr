@@ -15,7 +15,9 @@ test_that("simple dispatch", {
     }
 
     ret <- trace_dispatch_call(foo, list(0, a, 1))
-    str(ret)
-    browser()
-    1
+
+    expect_equal(length(ret), 3)
+    expect_equal(ret$status, 0)
+    expect_equal(as.integer(ret$result), 42)
+    expect_equal(ret$dispatch, list(x=character(0), y="A::length", z=character(0)))
 })
