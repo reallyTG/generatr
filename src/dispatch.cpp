@@ -8,10 +8,10 @@
 
 typedef std::unordered_map<SEXP, std::unordered_set<std::string>> DispatchState;
 
-void S3_dispatch_entry_callback(dyntracer_t *tracer, const char *generic,
+void S3_dispatch_exit_callback(dyntracer_t *tracer, const char *generic,
                                 const SEXP cls, const SEXP generic_method,
                                 const SEXP specific_method,
-                                const SEXP objects) {
+                                const SEXP objects, const SEXP ans) {
 
   auto state = (DispatchState *)dyntracer_get_data(tracer);
   dyntrace_disable();
@@ -46,37 +46,15 @@ void S3_dispatch_entry_callback(dyntracer_t *tracer, const char *generic,
 dyntracer_t *create_tracer() {
   dyntracer_t *tracer = dyntracer_create(NULL);
 
-  dyntracer_set_S3_dispatch_entry_callback(
+  dyntracer_set_S3_dispatch_exit_callback(
       tracer, [](dyntracer_t *tracer, const char *generic, const SEXP cls,
                  const SEXP generic_method, const SEXP specific_method,
-                 const SEXP objects) {
-        S3_dispatch_entry_callback(tracer, generic, cls, generic_method,
-                                   specific_method, objects);
+                 const SEXP objects, const SEXP ans) {
+        S3_dispatch_exit_callback(tracer, generic, cls, generic_method,
+                                   specific_method, objects, ans);
       });
 
   return tracer;
-}
-
-// returns a named list
-// x: [classA:method1, classB:method2]
-SEXP trace_dispatch_code(SEXP code, SEXP rho) {
-  dyntracer_t *tracer = create_tracer();
-
-  DispatchState state;
-
-  dyntracer_set_data(tracer, (void *)&state);
-
-  dyntrace_enable();
-  dyntrace_result_t result = dyntrace_trace_code(tracer, code, rho);
-  dyntrace_disable();
-
-  const char *names[] = {"status", "result"};
-  SEXP ret = PROTECT(Rf_mkNamed(VECSXP, names));
-  SET_VECTOR_ELT(ret, 0, Rf_ScalarInteger(result.error_code));
-  SET_VECTOR_ELT(ret, 1, result.error_code == 0 ? result.value : R_NilValue);
-  UNPROTECT(1);
-
-  return ret;
 }
 
 SEXP trace_dispatch_call(SEXP fun, SEXP args, SEXP rho) {
