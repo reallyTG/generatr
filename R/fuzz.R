@@ -164,7 +164,7 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
         assign(".DB", sxpdb::open_db(db_path), envir = globalenv())
     }
 
-    ts_args <- system.time(args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx)))
+    args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
     fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
 
     options(warn = 2)
@@ -179,7 +179,6 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
     ret$status <- NULL
     # so it can be put into a cell in data frame
     ret$dispatch <- list(ret$dispatch)
-    ret$ts_args <- as.numeric(ts_args["elapsed"])
     ret$ts_call <- as.numeric(ts_call["elapsed"])
     ret
 }
