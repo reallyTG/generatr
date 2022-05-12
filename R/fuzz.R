@@ -85,9 +85,8 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 
         tryCatch(
             {
-                ts <- system.time(r <- runner(pkg_name, fn_name, res$args_idx))
+                r <- runner(pkg_name, fn_name, res$args_idx)
                 res <- modifyList(res, r)
-                res$ts_run <- as.numeric(ts["elapsed"])
 
                 if (!is.na(res$error)) {
                     res$status <- 1L
@@ -125,15 +124,20 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
         function() NULL
     }
 
+    # TODO: use set instead
     collected_results <- new.env(parent = emptyenv())
     i <- 1
     cont <- TRUE
     start_time <- Sys.time()
     while (cont) {
+        ts <- Sys.time()
         run <- run_one()
+        ts <- Sys.time() - ts
+
         if (is.null(run)) {
             cont <- FALSE
         } else {
+            run$ts <- ts
             assign(as.character(i), run, envir = collected_results)
             i <- i + 1
             tick()
@@ -168,7 +172,7 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
     fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
 
     options(warn = 2)
-    ts_call <- system.time(ret <- generatr::trace_dispatch_call(fn, args))
+    ret <- generatr::trace_dispatch_call(fn, args)
 
     if (ret$status != 0) {
         ret$error <- geterrmessage()
@@ -179,7 +183,6 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
     ret$status <- NULL
     # so it can be put into a cell in data frame
     ret$dispatch <- list(ret$dispatch)
-    ret$ts_call <- as.numeric(ts_call["elapsed"])
     ret
 }
 
