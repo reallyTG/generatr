@@ -2,7 +2,12 @@
 #' @importFrom magrittr %>%
 #' @importFrom sxpdb open_db path_db
 #' @export
-quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, generator, quiet = !interactive()) {
+quick_fuzz <- function(pkg_name, fn_name, db, budget,
+                       origins_db, runner, generator,
+                       mode = c("store", "infer"),
+                       quiet = !interactive()) {
+    mode <- match.arg(mode)
+
     runner <- if (missing(runner)) {
         tmp <- runner_start(quiet = quiet)
         on.exit(runner_stop(runner, quiet = quiet))
@@ -27,9 +32,46 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, genera
         )
     }
 
+    if (mode == "store") {
+        rdb_path <- tempfile()
+        rdb <- sxpdb::open_db(rdb_path, mode = TRUE)
+        result_processor <- generatr::store_result(rdb, pkg_name, fn_name)
+    } else if (mode == "infer") {
+        result_processor <- generatr::infer_fun_type
+    }
+
     runner_fun <- create_fuzz_runner(runner = runner, db_path = sxpdb::path_db(value_db))
 
-    fuzz(pkg_name, fn_name, generator, runner_fun, quiet)
+    ret <- fuzz(pkg_name, fn_name, generator, runner_fun, result_processor = result_processor, quiet)
+
+    if (mode == "store") {
+        attr(ret, "db_path") <- rdb_path
+        close_db(rdb)
+    }
+
+    ret
+}
+
+#' @export
+store_result <- function(db, pkg_name, fn_name) {
+    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
+    args_name <- names(formals(fn))
+    call_id <- 0L
+    function(args, retval) {
+        call_id <<- call_id + 1L
+        sxpdb::add_val_origin(db, retval, pkg_name, fn_name, "return", call_id)
+        for (i in seq_along(args)) {
+            sxpdb::add_val_origin(db, args[[i]], pkg_name, fn_name, args_name[i], call_id)
+        }
+        call_id
+    }
+}
+
+#' @export
+infer_fun_type <- function(args, retval, get_type = contractr::infer_type) {
+    sig_args <- purrr::map_chr(args, get_type)
+    sig_args <- paste0(sig_args, collapse = ", ")
+    paste0("(", sig_args, ") => ", get_type(retval))
 }
 
 #' @importFrom purrr map map_dfr map_chr
@@ -39,16 +81,15 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, genera
 #' @export
 fuzz <- function(pkg_name, fn_name, generator, runner,
                  quiet = !interactive(),
-                 get_type = contractr::infer_type,
+                 result_processor = infer_fun_type,
                  timeout_s = 60 * 60) {
 
     # returns a list
     # - args_idx: int[]       - indices to be used for the args
     # - error: chr            - the error from the function
     # - exit: int             - the exit code if the R session has crashed or 0
-    # - result: any           - the function return value
     # - status: int           - 0 is OK, 1: error, 2: crash, -1: generate_args failure, -2: runner failure
-    # - signature: chr          - the signature inferred from the call (using `get_type`)
+    # - result: any           - the return value of calling the result_processor
     # - return_metadata: list -  sexptype, classes, length, number of attributes, number of dimensions, number of rows, presence of NA
     run_one <- function() {
         res <- list(
@@ -56,7 +97,6 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             error = NA_character_,
             exit = NA_integer_,
             result = NULL,
-            signature = NA_character_,
             status = 0L
         )
         class(res) <- "result"
@@ -103,11 +143,8 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 
         if (res$status == 0L) {
             successful_call(generator, res$args_idx)
-
-            sig_args <- purrr::map_chr(res$args_idx, ~ get_type(get_value(generator, .)))
-            sig_args <- paste0(sig_args, collapse = ", ")
-            res$signature <- paste0("(", sig_args, ") -> ", get_type(res$result))
-            res$return_metadata <- list(metadata_from_value(res$result))
+            args <- purrr::map(res$args_idx, ~ get_value(generator, .))
+            res$result <- result_processor(args, res$result)
         }
 
         tibble::as_tibble(res)
@@ -156,8 +193,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 as_tibble.result <- function(x, ...) {
     y <- x
 
-    y$args_idx <- paste0(y$args_idx, collapse = ";")
-    y$result <- NULL
+    y$args_idx <- list(y$args_idx)
 
     class(y) <- NULL
     tibble::as_tibble(y)
