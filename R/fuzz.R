@@ -46,7 +46,6 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
     # - args_idx: int[]       - indices to be used for the args
     # - error: chr            - the error from the function
     # - exit: int             - the exit code if the R session has crashed or 0
-    # - output: chr           - output captured during the call
     # - result: any           - the function return value
     # - status: int           - 0 is OK, 1: error, 2: crash, -1: generate_args failure, -2: runner failure
     # - signature: chr          - the signature inferred from the call (using `get_type`)
@@ -56,7 +55,6 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             args_idx = NA_integer_,
             error = NA_character_,
             exit = NA_integer_,
-            output = NA_character_,
             result = NULL,
             signature = NA_character_,
             status = 0L
@@ -169,21 +167,8 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
     ts_args <- system.time(args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx)))
     fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
 
-    temp <- file()
-    sink(temp)
-    sink(temp, type = "message")
-
     options(warn = 2)
     ts_call <- system.time(ret <- generatr::trace_dispatch_call(fn, args))
-
-    sink()
-    sink(type = "message")
-
-    ret$output <- paste0(readLines(temp, warn = FALSE), collapse = "\n")
-    if (ret$output == "") {
-        ret$output <- NA_character_
-    }
-    close(temp)
 
     if (ret$status != 0) {
         ret$error <- geterrmessage()
