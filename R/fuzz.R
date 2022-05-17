@@ -4,9 +4,9 @@
 #' @export
 quick_fuzz <- function(pkg_name, fn_name, db, budget,
                        origins_db, runner, generator,
-                       mode = c("store", "infer"),
+                       action = c("store", "infer"),
                        quiet = !interactive()) {
-    mode <- match.arg(mode)
+    action <- match.arg(action)
 
     runner <- if (missing(runner)) {
         tmp <- runner_start(quiet = quiet)
@@ -32,11 +32,11 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget,
         )
     }
 
-    if (mode == "store") {
+    if (action == "store") {
         rdb_path <- tempfile()
         rdb <- sxpdb::open_db(rdb_path, mode = TRUE)
-        result_processor <- generatr::store_result(rdb, pkg_name, fn_name)
-    } else if (mode == "infer") {
+        result_processor <- generatr::store_result(rdb)
+    } else if (action == "infer") {
         result_processor <- generatr::infer_fun_type
     }
 
@@ -44,7 +44,7 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget,
 
     ret <- fuzz(pkg_name, fn_name, generator, runner_fun, result_processor = result_processor, quiet)
 
-    if (mode == "store") {
+    if (action == "store") {
         attr(ret, "db_path") <- rdb_path
         close_db(rdb)
     }
@@ -53,18 +53,8 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget,
 }
 
 #' @export
-store_result <- function(db, pkg_name, fn_name) {
-    fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
-    args_name <- names(formals(fn))
-    call_id <- 0L
-    function(args, retval) {
-        call_id <<- call_id + 1L
-        sxpdb::add_val_origin(db, retval, pkg_name, fn_name, "return", call_id)
-        for (i in seq_along(args)) {
-            sxpdb::add_val_origin(db, args[[i]], pkg_name, fn_name, args_name[i], call_id)
-        }
-        call_id
-    }
+store_result <- function(db) {
+    function(args, retval) sxpdb::add_val(db, retval)
 }
 
 #' @export
@@ -84,14 +74,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
                  result_processor = infer_fun_type,
                  timeout_s = 60 * 60) {
 
-    # returns a list
-    # - args_idx: int[]       - indices to be used for the args
-    # - error: chr            - the error from the function
-    # - exit: int             - the exit code if the R session has crashed or 0
-    # - status: int           - 0 is OK, 1: error, 2: crash, -1: generate_args failure, -2: runner failure
-    # - result: any           - the return value of calling the result_processor
-    # - return_metadata: list -  sexptype, classes, length, number of attributes, number of dimensions, number of rows, presence of NA
-    run_one <- function() {
+    new_result <- function() {
         res <- list(
             args_idx = NA_integer_,
             error = NA_character_,
@@ -100,7 +83,17 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             status = 0L
         )
         class(res) <- "result"
+        res
+    }
 
+    # returns a list
+    # - args_idx: int[]       - indices to be used for the args
+    # - error: chr            - the error from the function
+    # - exit: int             - the exit code if the R session has crashed or 0
+    # - status: int           - 0 is OK, 1: error, 2: crash, -1: generate_args failure, -2: runner failure
+    # - result: any           - the return value of calling the result_processor
+    run_one <- function() {
+        res <- new_result()
         tryCatch(
             {
                 res$args_idx <- generate_args(generator)
@@ -168,7 +161,13 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
     start_time <- Sys.time()
     while (cont) {
         ts <- Sys.time()
-        run <- run_one()
+        run <- tryCatch({
+            run_one()
+        }, error = function(e) {
+            res <- new_result()
+            res$error <- e$message
+            res$status <- -3L
+        })
         ts <- Sys.time() - ts
 
         if (is.null(run)) {
