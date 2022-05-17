@@ -16,7 +16,6 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.1.2
 Suggests:
     callr,
-    cpp11,
     contractr,
     future,
     future.callr,

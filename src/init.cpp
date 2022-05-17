@@ -8,6 +8,7 @@ extern "C" {
 
 static const R_CallMethodDef callMethods[] = {
     {"trace_dispatch_call", (DL_FUNC)&trace_dispatch_call, 3}, 
+    {"sigabtr", (DL_FUNC)&abort, 0},
     {NULL, NULL, 0}
 };
 

@@ -67,9 +67,7 @@ test_that("runner survies an sigabort", {
     x <- runner_exec(
         r,
         function(x, y) {
-            cat("c")
-            cpp11::cpp_function("int shutdown() { abort(); return 1; }")
-            shutdown()
+            .Call(generatr:::C_sigabtr)
             x + y
         },
         list(2, 40)
