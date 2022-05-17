@@ -120,6 +120,9 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             {
                 r <- runner(pkg_name, fn_name, res$args_idx)
                 res <- modifyList(res, r)
+                if (is.null(r$result)) {
+                    res["result"] <- list(NULL)
+                }
 
                 if (!is.na(res$error)) {
                     res$status <- 1L
@@ -193,6 +196,9 @@ as_tibble.result <- function(x, ...) {
     y <- x
 
     y$args_idx <- list(y$args_idx)
+    if (is.null(x$result)) {
+        y$result <- NA
+    }
 
     class(y) <- NULL
     tibble::as_tibble(y)
