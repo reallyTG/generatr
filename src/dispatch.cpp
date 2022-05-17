@@ -34,13 +34,16 @@ void S3_dispatch_entry_callback(dyntracer_t *tracer, const char *generic,
 
   dyntrace_disable();
 
-  for (int i = 0; i < Rf_length(cls); i++) {
-    SEXP c = STRING_ELT(cls, i);
-    std::string r = CHAR(c);
-    r += "::";
-    r += generic;
-    state->args[state->current_arg].insert(r);
+  std::string r;
+  if (TYPEOF(cls) == STRSXP) {
+    r = CHAR(STRING_ELT(cls, 0));
+  } else {
+    r = CHAR(cls);
   }
+
+  r += "::";
+  r += generic;
+  state->args[state->current_arg].insert(r);
 
   dyntrace_enable();
 

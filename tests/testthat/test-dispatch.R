@@ -1,3 +1,16 @@
+test_that("dispatch on object with multiple classes", {
+    foo <- function(x) {
+        sin(x)
+    }
+
+    a <- readRDS("data/anova.RDS")
+    ret <- trace_dispatch_call(foo, list(a))
+
+    expect_equal(length(ret), 3)
+    expect_equal(ret$status, 0)
+    expect_equal(ret$dispatch, list(x = c("data.frame::as.list", "data.frame::sin")))
+})
+
 test_that("internal dispatch", {
     length.A <- function(x) {
         x + 1
