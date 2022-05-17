@@ -69,8 +69,10 @@ runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000, capture = TRU
             ret <- switch(state,
                 ready = {
                     v <- sess$read()
-                    if (v$code == 200) {
+                    if (v$code == 200 && is.null(v$error)) {
                         v$result
+                    } else if (v$code == 200 && !is.null(v$error)) {
+                        stop(v$error)
                     } else if (v$code == 501) {
                         stop(v$message)
                     } else {
