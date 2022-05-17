@@ -1,3 +1,15 @@
+test_that("coerce is captured", {
+    foo <- function(x) {
+        grep("A", x)
+    }
+
+    ret <- trace_dispatch_call(foo, list(data.frame(x = "A")))
+
+    expect_equal(length(ret), 3)
+    expect_equal(ret$status, 0)
+    expect_equal(ret$dispatch, list(x = c("as.STRSXP", "<default>::as.character")))
+})
+
 test_that("dispatch on object with multiple classes", {
     foo <- function(x) {
         sin(x)
