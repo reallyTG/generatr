@@ -1,11 +1,12 @@
 #' @param seed a list of seeds
 #' @export
-create_fixed_args_generator <- function(seed) {
+create_fixed_args_generator <- function(db, seed) {
     state <- new.env(parent = emptyenv())
     class(state) <- "fixed_gen"
 
     state$i <- 0
     state$seed <- seed
+    state$value_db <- db
 
     state
 }

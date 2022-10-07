@@ -170,6 +170,7 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
             res <- new_result()
             res$error <- e$message
             res$status <- -3L
+            as_tibble(res)
         })
         ts <- Sys.time() - ts
 

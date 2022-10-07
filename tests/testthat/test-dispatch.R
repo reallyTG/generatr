@@ -1,3 +1,15 @@
+test_that("catch error", {
+    foo <- function(x, y) x + y
+    args <- readRDS("data/lang.RDS")
+    ret <- trace_dispatch_call(foo, args)
+
+    browser()
+
+    expect_equal(length(ret), 3)
+    expect_equal(ret$status, 0)
+    expect_equal(ret$dispatch, list(x = c("data.frame::as.list", "data.frame::sin")))
+})
+
 test_that("coerce is captured", {
     foo <- function(x) {
         grep("A", x)
