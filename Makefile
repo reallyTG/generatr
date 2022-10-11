@@ -3,7 +3,7 @@ NAME := generatr
 R    ?= R
 
 ifdef BEAR
-	BEAR := $(BEAR) --
+	BEAR := $(BEAR) 
 endif
 
 .PHONY: all build check clean document test install
