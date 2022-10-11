@@ -20,6 +20,14 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget,
         db
     }
 
+    value_db <- if !has_search_index(db) {
+      sxpdb::close_db(db)
+      db <- sxpdb::open_db(db, mode = T)
+      sxpdb::build_indexes(db)
+      sxpdb::close_db(db)
+      sxpdb::open_db(db)
+    }
+
     if (missing(origins_db)) {
         origins_db <- sxpdb::view_origins_db(value_db) %>% as_tibble()
     }
