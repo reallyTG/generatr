@@ -20,7 +20,7 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget,
         db
     }
 
-    value_db <- if !has_search_index(db) {
+    value_db <- if (!has_search_index(db)) {
       sxpdb::close_db(db)
       db <- sxpdb::open_db(db, mode = T)
       sxpdb::build_indexes(db)
