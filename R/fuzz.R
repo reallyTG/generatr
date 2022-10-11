@@ -2,7 +2,12 @@
 #' @importFrom magrittr %>%
 #' @importFrom sxpdb open_db path_db
 #' @export
-quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, generator, quiet = !interactive()) {
+quick_fuzz <- function(pkg_name, fn_name, db, budget,
+                       origins_db, runner, generator,
+                       action = c("store", "infer"),
+                       quiet = !interactive()) {
+    action <- match.arg(action)
+
     runner <- if (missing(runner)) {
         tmp <- runner_start(quiet = quiet)
         on.exit(runner_stop(runner, quiet = quiet))
@@ -27,9 +32,36 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, genera
         )
     }
 
+    if (action == "store") {
+        rdb_path <- tempfile()
+        rdb <- sxpdb::open_db(rdb_path, mode = TRUE)
+        result_processor <- generatr::store_result(rdb)
+    } else if (action == "infer") {
+        result_processor <- generatr::infer_fun_type
+    }
+
     runner_fun <- create_fuzz_runner(runner = runner, db_path = sxpdb::path_db(value_db))
 
-    fuzz(pkg_name, fn_name, generator, runner_fun, quiet)
+    ret <- fuzz(pkg_name, fn_name, generator, runner_fun, result_processor = result_processor, quiet)
+
+    if (action == "store") {
+        attr(ret, "db_path") <- rdb_path
+        close_db(rdb)
+    }
+
+    ret
+}
+
+#' @export
+store_result <- function(db) {
+    function(args, retval) sxpdb::add_val(db, retval)
+}
+
+#' @export
+infer_fun_type <- function(args, retval, get_type = contractr::infer_type) {
+    sig_args <- purrr::map_chr(args, get_type)
+    sig_args <- paste0(sig_args, collapse = ", ")
+    paste0("(", sig_args, ") => ", get_type(retval))
 }
 
 #' @importFrom purrr map map_dfr map_chr
@@ -39,30 +71,29 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget, origins_db, runner, genera
 #' @export
 fuzz <- function(pkg_name, fn_name, generator, runner,
                  quiet = !interactive(),
-                 get_type = contractr::infer_type,
+                 result_processor = infer_fun_type,
                  timeout_s = 60 * 60) {
+
+    new_result <- function() {
+        res <- list(
+            args_idx = NA_integer_,
+            error = NA_character_,
+            exit = NA_integer_,
+            result = NULL,
+            status = 0L
+        )
+        class(res) <- "result"
+        res
+    }
 
     # returns a list
     # - args_idx: int[]       - indices to be used for the args
     # - error: chr            - the error from the function
     # - exit: int             - the exit code if the R session has crashed or 0
-    # - output: chr           - output captured during the call
-    # - result: any           - the function return value
     # - status: int           - 0 is OK, 1: error, 2: crash, -1: generate_args failure, -2: runner failure
-    # - signature: chr          - the signature inferred from the call (using `get_type`)
-    # - return_metadata: list -  sexptype, classes, length, number of attributes, number of dimensions, number of rows, presence of NA
+    # - result: any           - the return value of calling the result_processor
     run_one <- function() {
-        res <- list(
-            args_idx = NA_integer_,
-            error = NA_character_,
-            exit = NA_integer_,
-            output = NA_character_,
-            result = NULL,
-            signature = NA_character_,
-            status = 0L
-        )
-        class(res) <- "result"
-
+        res <- new_result()
         tryCatch(
             {
                 res$args_idx <- generate_args(generator)
@@ -87,9 +118,11 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 
         tryCatch(
             {
-                ts <- system.time(r <- runner(pkg_name, fn_name, res$args_idx))
+                r <- runner(pkg_name, fn_name, res$args_idx)
                 res <- modifyList(res, r)
-                res$ts_run <- as.numeric(ts["elapsed"])
+                if (is.null(r$result)) {
+                    res["result"] <- list(NULL)
+                }
 
                 if (!is.na(res$error)) {
                     res$status <- 1L
@@ -106,11 +139,8 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 
         if (res$status == 0L) {
             successful_call(generator, res$args_idx)
-
-            sig_args <- purrr::map_chr(res$args_idx, ~ get_type(get_value(generator, .)))
-            sig_args <- paste0(sig_args, collapse = ", ")
-            res$signature <- paste0("(", sig_args, ") -> ", get_type(res$result))
-            res$return_metadata <- list(metadata_from_value(res$result))
+            args <- purrr::map(res$args_idx, ~ get_value(generator, .))
+            res$result <- result_processor(args, res$result)
         }
 
         tibble::as_tibble(res)
@@ -127,15 +157,27 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
         function() NULL
     }
 
+    # TODO: use set instead
     collected_results <- new.env(parent = emptyenv())
     i <- 1
     cont <- TRUE
     start_time <- Sys.time()
     while (cont) {
-        run <- run_one()
+        ts <- Sys.time()
+        run <- tryCatch({
+            run_one()
+        }, error = function(e) {
+            res <- new_result()
+            res$error <- e$message
+            res$status <- -3L
+            as_tibble(res)
+        })
+        ts <- Sys.time() - ts
+
         if (is.null(run)) {
             cont <- FALSE
         } else {
+            run$ts <- ts
             assign(as.character(i), run, envir = collected_results)
             i <- i + 1
             tick()
@@ -154,8 +196,10 @@ fuzz <- function(pkg_name, fn_name, generator, runner,
 as_tibble.result <- function(x, ...) {
     y <- x
 
-    y$args_idx <- paste0(y$args_idx, collapse = ";")
-    y$result <- NULL
+    y$args_idx <- list(y$args_idx)
+    if (is.null(x$result)) {
+        y$result <- NA
+    }
 
     class(y) <- NULL
     tibble::as_tibble(y)
@@ -166,24 +210,11 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
         assign(".DB", sxpdb::open_db(db_path), envir = globalenv())
     }
 
-    ts_args <- system.time(args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx)))
+    args <- lapply(args_idx, function(idx) sxpdb::get_value_idx(.DB, idx))
     fn <- get(fn_name, envir = getNamespace(pkg_name), mode = "function")
 
-    temp <- file()
-    sink(temp)
-    sink(temp, type = "message")
-
     options(warn = 2)
-    ts_call <- system.time(ret <- generatr::trace_dispatch_call(fn, args))
-
-    sink()
-    sink(type = "message")
-
-    ret$output <- paste0(readLines(temp, warn = FALSE), collapse = "\n")
-    if (ret$output == "") {
-        ret$output <- NA_character_
-    }
-    close(temp)
+    ret <- generatr::trace_dispatch_call(fn, args)
 
     if (ret$status != 0) {
         ret$error <- geterrmessage()
@@ -194,8 +225,6 @@ invoke_fun <- function(pkg_name, fn_name, args_idx, db_path) {
     ret$status <- NULL
     # so it can be put into a cell in data frame
     ret$dispatch <- list(ret$dispatch)
-    ret$ts_args <- as.numeric(ts_args["elapsed"])
-    ret$ts_call <- as.numeric(ts_call["elapsed"])
     ret
 }
 

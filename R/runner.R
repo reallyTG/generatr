@@ -41,7 +41,6 @@ runner_stop <- function(runner, quiet = TRUE) {
 #' @return either the result of running `fun(args)` or if `capture` is TRUE, a named list with
 #    - error: chr        NA or the error / warning message that occurred (warnings are treated as errors)
 #    - exit: int         0 or the exit that has crashed the underlying R session
-#    - output: chr       the output that occurred during the call
 #    - result: any       the result of calling fun with args
 #' @export
 runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000, capture = TRUE) {
@@ -67,11 +66,14 @@ runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000, capture = TRU
             sess$call(fun, args, package = TRUE)
             state <- sess$poll_process(timeout_ms)
 
+            browser()
             ret <- switch(state,
                 ready = {
                     v <- sess$read()
-                    if (v$code == 200) {
+                    if (v$code == 200 && is.null(v$error)) {
                         v$result
+                    } else if (v$code == 200 && !is.null(v$error)) {
+                        stop(v$error)
                     } else if (v$code == 501) {
                         stop(v$message)
                     } else {
@@ -89,7 +91,6 @@ runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000, capture = TRU
             r <- list(
                 error = e$message,
                 exit = NA_integer_,
-                output = NA_character_,
                 result = NULL
             )
 
@@ -116,31 +117,14 @@ print.runner <- function(x, ...) {
 #' @export
 capture_all <- function(fun) {
     function(...) {
-        temp <- file()
-        sink(temp)
-        sink(temp, type = "message")
-        on.exit({
-            sink()
-            sink(type = "message")
-            close(temp)
-        })
-
-        res <-
-            tryCatch(
-                {
-                    result <- fun(...)
-                    list(result = result, error = NA_character_)
-                },
-                error = function(e) list(result = NULL, error = e$message),
-                warning = function(e) list(result = NULL, error = e$message),
-                interrupt = function(e) stop("Terminated by user", call. = FALSE)
-            )
-
-        res$output <- paste0(readLines(temp, warn = FALSE), collapse = "\n")
-        if (res$output == "") {
-            res$output <- NA_character_
-        }
-
-        res
+        tryCatch(
+            {
+                result <- fun(...)
+                list(result = result, error = NA_character_)
+            },
+            error = function(e) list(result = NULL, error = e$message),
+            warning = function(e) list(result = NULL, error = e$message),
+            interrupt = function(e) stop("Terminated by user", call. = FALSE)
+        )
     }
 }

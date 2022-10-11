@@ -12,12 +12,11 @@ test_that("fuzz works on +", {
     df <- fuzz(pkg_name = "generatr", fn_name = "wrap_+", generator = generator, runner = runner_fun)
 
     expect_equal(nrow(df), 1L)
-    expect_equal(df$args_idx, "0;1")
+    expect_equal(df$args_idx, list(c(0, 1)))
     expect_equal(is.na(df$error), TRUE)
     expect_equal(is.na(df$exit), TRUE)
-    expect_equal(is.na(df$output), TRUE)
     expect_equal(df$status, 0L)
-    expect_equal(df$signature, "(double, double) -> double")
+    expect_equal(df$result, "(double, double) => double")
     expect_equal(df$dispatch, list(list(x = character(0), y = character(0))))
 })
 
@@ -35,12 +34,11 @@ test_that("fuzz works on + (catches errors)", {
     df <- fuzz(pkg_name = "generatr", fn_name = "wrap_+", generator = generator, runner = runner_fun)
 
     expect_equal(nrow(df), 1L)
-    expect_equal(df$args_idx, "0;1")
+    expect_equal(df$args_idx, list(c(0, 1)))
     expect_equal(df$error, "Error in x + y : non-numeric argument to binary operator\nCalls: <Anonymous>\n")
     expect_equal(is.na(df$exit), TRUE)
-    expect_equal(df$output, "Error in x + y : non-numeric argument to binary operator\nCalls: <Anonymous>")
     expect_equal(df$status, 1L)
-    expect_equal(is.na(df$signature), TRUE)
+    expect_equal(is.na(df$result), TRUE)
     expect_equal(df$dispatch, list(list(x = character(0), y = character(0))))
 })
 
@@ -58,12 +56,11 @@ test_that("fuzz catches warnings", {
     df <- fuzz(pkg_name = "generatr", fn_name = "f_warn", generator = generator, runner = runner_fun)
 
     expect_equal(nrow(df), 1L)
-    expect_equal(df$args_idx, "0")
+    expect_equal(df$args_idx, list(0))
     expect_equal(df$error, "Error in (function (x)  : (converted from warning) warn from f\n")
     expect_equal(is.na(df$exit), TRUE)
-    expect_equal(df$output, "Error in (function (x)  : (converted from warning) warn from f")
     expect_equal(df$status, 1L)
-    expect_equal(is.na(df$signature), TRUE)
+    expect_equal(is.na(df$result), TRUE)
     expect_equal(df$dispatch, list(list(x = character(0))))
 })
 
