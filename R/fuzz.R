@@ -20,12 +20,13 @@ quick_fuzz <- function(pkg_name, fn_name, db, budget,
         db
     }
 
-    value_db <- if (!sxpdb::has_search_index(db)) {
-      sxpdb::close_db(db)
-      db <- sxpdb::open_db(db, mode = T)
-      sxpdb::build_indexes(db)
-      sxpdb::close_db(db)
-      sxpdb::open_db(db)
+    value_db <- if (!sxpdb::has_search_index(value_db)) {
+      path <- sxpdb::path_db(value_db)
+      sxpdb::close_db(value_db)
+      vdb <- sxpdb::open_db(path, mode = T)
+      sxpdb::build_indexes(vdb)
+      sxpdb::close_db(vdb)
+      sxpdb::open_db(path)
     }
 
     if (missing(origins_db)) {
