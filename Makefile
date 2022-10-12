@@ -28,4 +28,4 @@ test:
 	$(R) -e 'devtools::test()'
 
 install:
-	$(BEAR) $(R) CMD INSTALL .
+	$(R) CMD INSTALL .
