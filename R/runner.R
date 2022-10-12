@@ -66,7 +66,6 @@ runner_exec <- function(runner, fun, args, timeout_ms = 60 * 1000, capture = TRU
             sess$call(fun, args, package = TRUE)
             state <- sess$poll_process(timeout_ms)
 
-            browser()
             ret <- switch(state,
                 ready = {
                     v <- sess$read()
