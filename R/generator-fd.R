@@ -77,6 +77,13 @@ generate_args.fd_gen <- function(state) {
                     relax_this_time <- unique(c(relax_this_time, state$RELAX[[j]]))
                     j <- j + 1
                 }
+                if(is.null(idx)) { # we should have relaxed enough anyway
+                  q <- sxpdb::query_from_value(seed_for_this_param)
+                  sxpdb::relax_query(q, "keep_type")
+                }
+                if(is.null(idx)) { # we should have relaxed enough anyway
+                  idx <- sxpdb::sample_index(state$value_db)
+                }
            idx
            }
        }
